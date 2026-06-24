@@ -1,0 +1,2 @@
+[run]
+command = ["bash", "script/build_and_run.sh"]
