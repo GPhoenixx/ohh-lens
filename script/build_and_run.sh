@@ -11,5 +11,6 @@ export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
 
 mkdir -p "$HOME" "$CLANG_MODULE_CACHE_PATH"
 
+swift test
 swift build
 swift run OhhLensApp

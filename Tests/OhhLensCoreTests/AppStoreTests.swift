@@ -34,4 +34,15 @@ final class AppStoreTests: XCTestCase {
         store.captionMode = .dualLine
         XCTAssertEqual(store.captionMode, .dualLine)
     }
+
+    @MainActor
+    func test_stopListeningReturnsToIdleState() {
+        let store = AppStore()
+        store.startListening()
+
+        store.stopListening()
+
+        XCTAssertFalse(store.isListening)
+        XCTAssertEqual(store.statusText, "Idle")
+    }
 }

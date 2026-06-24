@@ -63,6 +63,11 @@ struct LiveView: View {
                         .buttonStyle(.bordered)
                         .disabled(appStore.isListening == false)
 
+                        Button("Load Preview Subtitle") {
+                            appStore.applyPreviewTranscript()
+                        }
+                        .buttonStyle(.bordered)
+
                         Spacer()
                     }
                 }

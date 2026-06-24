@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 @MainActor
@@ -65,6 +66,24 @@ public final class AppStore {
 
     public func exportHistorySRT(for session: SessionRecord) -> String? {
         historyStore?.exportSRT(for: session)
+    }
+
+    public func applyPreviewTranscript() {
+        let timestamp = Date.now.timeIntervalSince1970
+        let segment = TranscriptSegment(
+            startedAt: timestamp,
+            endedAt: timestamp + 2,
+            originalText: "We can start the meeting now if everyone is ready.",
+            translatedText: "Chung ta co the bat dau cuoc hop ngay bay gio."
+        )
+
+        history = [
+            SessionRecord(
+                source: selectedSource,
+                languages: languagePair,
+                segments: [segment]
+            )
+        ]
     }
 
     private func persistHistory() {
