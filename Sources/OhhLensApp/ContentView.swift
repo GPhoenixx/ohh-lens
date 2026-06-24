@@ -2,9 +2,11 @@ import SwiftUI
 import OhhLensCore
 
 struct ContentView: View {
-    @EnvironmentObject private var appStore: AppStore
+    @Environment(AppStore.self) private var appStore
 
     var body: some View {
+        @Bindable var appStore = appStore
+
         NavigationSplitView {
             SidebarView(selection: $appStore.selectedSection)
         } detail: {
