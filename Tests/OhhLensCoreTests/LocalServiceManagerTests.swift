@@ -95,6 +95,62 @@ final class LocalServiceManagerTests: XCTestCase {
         XCTAssertEqual(runner.launchCount, 2)
         XCTAssertEqual(runner.terminateCount, 1)
     }
+
+    @MainActor
+    func test_stopDuringInflightStartDoesNotTransitionToReady() async {
+        let runner = StubProcessRunner()
+        let client = ControllableFunASRClient()
+        let manager = LocalServiceManager(
+            processRunner: runner,
+            client: client,
+            maxHealthCheckAttempts: 1,
+            healthCheckDelayNanoseconds: 0
+        )
+
+        let startTask = Task {
+            try? await manager.start()
+        }
+
+        await waitUntil({ await client.callCountValue() }, equals: 1)
+        manager.stop()
+        await client.resumeNext(with: true)
+        _ = await startTask.value
+
+        XCTAssertEqual(manager.status, LocalServiceManager.Status.idle)
+    }
+
+    @MainActor
+    func test_laterStartWinsOverEarlierInflightStart() async {
+        let runner = StubProcessRunner()
+        let client = ControllableFunASRClient()
+        let manager = LocalServiceManager(
+            processRunner: runner,
+            client: client,
+            maxHealthCheckAttempts: 1,
+            healthCheckDelayNanoseconds: 0
+        )
+
+        let firstStartTask = Task {
+            try? await manager.start()
+        }
+        await waitUntil({ await client.callCountValue() }, equals: 1)
+
+        let secondStartTask = Task {
+            try? await manager.start()
+        }
+        await waitUntil({ await client.callCountValue() }, equals: 2)
+
+        await client.resumeCall(at: 1, with: true)
+        await waitUntilStatus(of: manager, equals: .ready)
+
+        await client.resumeCall(at: 0, with: false)
+        _ = await firstStartTask.value
+        _ = await secondStartTask.value
+
+        XCTAssertEqual(manager.status, LocalServiceManager.Status.ready)
+        XCTAssertEqual(runner.launchCount, 2)
+        XCTAssertEqual(runner.terminateCount, 1)
+    }
 }
 
 private final class StubProcessRunner: ProcessRunning {
@@ -154,4 +210,64 @@ private struct StubFunASRClient: FunASRServicing {
 
 private enum StubProcessRunnerError: Error {
     case launchFailed
+}
+
+private actor ControllableFunASRClient: FunASRServicing {
+    private var continuations: [CheckedContinuation<Bool, Never>] = []
+    private(set) var callCount = 0
+
+    func healthCheck() async -> Bool {
+        callCount += 1
+        return await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func resumeNext(with result: Bool) {
+        guard !continuations.isEmpty else { return }
+        continuations.removeFirst().resume(returning: result)
+    }
+
+    func resumeCall(at index: Int, with result: Bool) {
+        guard continuations.indices.contains(index) else { return }
+        continuations.remove(at: index).resume(returning: result)
+    }
+
+    func callCountValue() -> Int {
+        callCount
+    }
+}
+
+@MainActor
+private func waitUntil(
+    _ value: @escaping () async -> Int,
+    equals expected: Int,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    for _ in 0..<100 {
+        if await value() == expected {
+            return
+        }
+        await Task.yield()
+    }
+
+    XCTFail("Timed out waiting for value \(expected)", file: file, line: line)
+}
+
+@MainActor
+private func waitUntilStatus(
+    of manager: LocalServiceManager,
+    equals expected: LocalServiceManager.Status,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    for _ in 0..<100 {
+        if manager.status == expected {
+            return
+        }
+        await Task.yield()
+    }
+
+    XCTFail("Timed out waiting for status \(expected)", file: file, line: line)
 }

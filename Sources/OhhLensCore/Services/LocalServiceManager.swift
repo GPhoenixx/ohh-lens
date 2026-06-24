@@ -17,6 +17,7 @@ public final class LocalServiceManager {
     private let client: FunASRServicing
     private let maxHealthCheckAttempts: Int
     private let healthCheckDelayNanoseconds: UInt64
+    private var operationGeneration = 0
 
     public init(
         processRunner: ProcessRunning,
@@ -31,6 +32,8 @@ public final class LocalServiceManager {
     }
 
     public func start() async throws {
+        operationGeneration += 1
+        let generation = operationGeneration
         status = .starting
 
         processRunner.terminate()
@@ -41,27 +44,34 @@ public final class LocalServiceManager {
                 arguments: ["bash", "-lc", "echo starting-funasr"]
             )
         } catch {
+            guard generation == operationGeneration else { throw error }
             status = .needsAttention("Failed to launch FunASR service")
             throw error
         }
 
         for attempt in 1...maxHealthCheckAttempts {
+            guard generation == operationGeneration else { return }
+
             if await client.healthCheck() {
+                guard generation == operationGeneration else { return }
                 status = .ready
                 return
             }
+
+            guard generation == operationGeneration else { return }
 
             if attempt < maxHealthCheckAttempts, healthCheckDelayNanoseconds > 0 {
                 try? await Task.sleep(nanoseconds: healthCheckDelayNanoseconds)
             }
         }
 
-        if status != .ready {
+        if generation == operationGeneration, status != .ready {
             status = .needsAttention("FunASR health check failed")
         }
     }
 
     public func stop() {
+        operationGeneration += 1
         processRunner.terminate()
         status = .idle
     }
