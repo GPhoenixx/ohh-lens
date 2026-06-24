@@ -18,6 +18,10 @@ struct SetupView: View {
                     detail: appStore.backendStatusText
                 )
                 setupRow(
+                    title: "Diagnostics",
+                    detail: appStore.setupMessage
+                )
+                setupRow(
                     title: "Microphone permission",
                     detail: "Grant access in System Settings so live capture can start instantly."
                 )
@@ -28,6 +32,9 @@ struct SetupView: View {
             }
             .padding(20)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+            Button("Open System Settings") {}
+                .buttonStyle(.borderedProminent)
 
             Spacer()
         }

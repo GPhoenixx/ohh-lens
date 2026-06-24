@@ -10,6 +10,7 @@ public final class AppStore {
     public var isListening = false
     public var statusText = "Idle"
     public var backendStatusText = "Backend idle"
+    public var setupMessage = "Checking setup..."
     public var history: [SessionRecord] = [] {
         didSet {
             persistHistory()
@@ -20,6 +21,7 @@ public final class AppStore {
 
     public init() {
         self.historyStore = AppStore.makeDefaultHistoryStore()
+        self.setupMessage = AppStore.defaultSetupMessage()
 
         if let historyStore {
             self.history = (try? historyStore.load()) ?? []
@@ -30,6 +32,7 @@ public final class AppStore {
 
     public init(historyStore: HistoryStore?) {
         self.historyStore = historyStore
+        self.setupMessage = AppStore.defaultSetupMessage()
 
         if let historyStore {
             self.history = (try? historyStore.load()) ?? []
@@ -50,6 +53,10 @@ public final class AppStore {
 
     public func updateBackendStatus(_ text: String) {
         backendStatusText = text
+    }
+
+    public func updateSetupMessage(_ text: String) {
+        setupMessage = text
     }
 
     public func appendHistorySession(_ session: SessionRecord) {
@@ -76,6 +83,16 @@ private extension AppStore {
         }
 
         return HistoryStore(fileURL: fileURL)
+    }
+
+    static func defaultSetupMessage() -> String {
+        let permissions = PermissionsService().currentSnapshot()
+
+        guard permissions.microphoneAuthorized else {
+            return "Microphone access is required before live subtitles can start."
+        }
+
+        return VirtualDeviceDiagnostics(availableDeviceNames: []).currentStatus().message
     }
 }
 
