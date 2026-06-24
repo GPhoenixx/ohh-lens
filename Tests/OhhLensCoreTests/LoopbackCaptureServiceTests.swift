@@ -15,4 +15,13 @@ final class LoopbackCaptureServiceTests: XCTestCase {
 
         XCTAssertEqual(devices.map(\.id), ["blackhole", "vb"])
     }
+
+    @MainActor
+    func test_serviceMarksAudioDetectedWhenSamplePowerExceedsThreshold() {
+        let service = LoopbackCaptureService.testDouble(source: .systemAudio)
+
+        service.receiveTestPower(average: -18, peak: -8)
+
+        XCTAssertTrue(service.currentLevel.detectedSound)
+    }
 }

@@ -45,4 +45,22 @@ final class AppStoreTests: XCTestCase {
         XCTAssertFalse(store.isListening)
         XCTAssertEqual(store.statusText, "Idle")
     }
+
+    @MainActor
+    func test_selectingSystemAudioCanExposeDetectedSoundState() {
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(
+                devices: [
+                    .init(id: "blackhole", name: "BlackHole 2ch", isInput: true)
+                ]
+            )
+        )
+
+        store.selectedSource = .systemAudio
+        store.updateCaptureLevel(.init(averagePower: -12, peakPower: -6, detectedSound: true))
+
+        XCTAssertTrue(store.captureLevel.detectedSound)
+        XCTAssertEqual(store.statusText, "Audio detected")
+    }
 }

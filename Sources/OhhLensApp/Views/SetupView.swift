@@ -27,7 +27,11 @@ struct SetupView: View {
                 )
                 setupRow(
                     title: "Loopback device",
-                    detail: "Install or choose your virtual audio device when you want system or app audio subtitles."
+                    detail: appStore.selectedLoopbackDeviceName() ?? "Install or choose your virtual audio device when you want system or app audio subtitles."
+                )
+                setupRow(
+                    title: "Loopback status",
+                    detail: appStore.captureLevel.detectedSound ? "Audio detected from the routed device." : "No active routed audio detected yet."
                 )
             }
             .padding(20)

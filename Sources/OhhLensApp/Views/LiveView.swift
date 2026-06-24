@@ -40,6 +40,32 @@ struct LiveView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 16) {
+                    if appStore.selectedSource == .systemAudio || appStore.selectedSource == .appAudio {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Loopback device")
+                                .font(.headline)
+
+                            if appStore.availableLoopbackDevices.isEmpty {
+                                Text("No virtual audio device found. Install BlackHole or Loopback, then route YouTube audio through it.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Picker("Loopback device", selection: Binding(
+                                    get: { appStore.selectedLoopbackDeviceID ?? "" },
+                                    set: { appStore.selectedLoopbackDeviceID = $0 }
+                                )) {
+                                    ForEach(appStore.availableLoopbackDevices) { device in
+                                        Text(device.name).tag(device.id)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+
+                                Text(appStore.captureLevel.detectedSound ? "Audio is flowing from the selected loopback device." : "Capture is armed. Start YouTube playback and Ohh Lens will listen for routed audio.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
                     Text("Caption mode")
                         .font(.headline)
 
@@ -113,7 +139,14 @@ struct LiveView: View {
             mode = "Dual-line captions"
         }
 
-        return "\(source) selected. \(mode). Backend: \(store.backendStatusText)."
+        let flowSummary: String
+        if store.selectedSource == .systemAudio || store.selectedSource == .appAudio {
+            flowSummary = store.captureLevel.detectedSound ? "Audio detected from \(store.selectedLoopbackDeviceName() ?? "loopback device")." : "Waiting for loopback audio."
+        } else {
+            flowSummary = "Capture is not using a loopback device."
+        }
+
+        return "\(source) selected. \(mode). Backend: \(store.backendStatusText). \(flowSummary)"
     }
 
     private func sourceTitle(for source: AudioSource) -> String {

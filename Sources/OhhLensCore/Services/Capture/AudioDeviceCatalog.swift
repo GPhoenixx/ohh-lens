@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 
 public struct AudioInputDevice: Equatable, Identifiable, Sendable {
@@ -19,8 +20,26 @@ public struct AudioDeviceCatalog {
         self.devices = devices
     }
 
+    public static func systemDefault() -> AudioDeviceCatalog {
+        let discoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.microphone, .external],
+            mediaType: .audio,
+            position: .unspecified
+        )
+
+        let discoveredDevices = discoverySession.devices.map { device in
+            AudioInputDevice(id: device.uniqueID, name: device.localizedName, isInput: true)
+        }
+
+        return AudioDeviceCatalog(devices: discoveredDevices)
+    }
+
+    public func allInputDevices() -> [AudioInputDevice] {
+        devices.filter(\.isInput)
+    }
+
     public func loopbackInputDevices() -> [AudioInputDevice] {
-        devices.filter { device in
+        allInputDevices().filter { device in
             guard device.isInput else {
                 return false
             }
