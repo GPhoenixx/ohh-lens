@@ -21,29 +21,6 @@ struct ContentView: View {
                 SetupView()
             }
         }
-    }
-}
-
-private struct LiveView: View {
-    var body: some View {
-        Text("Live")
-            .font(.largeTitle.bold())
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct HistoryView: View {
-    var body: some View {
-        Text("History")
-            .font(.largeTitle.bold())
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct FilesView: View {
-    var body: some View {
-        Text("Files")
-            .font(.largeTitle.bold())
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationSplitViewStyle(.balanced)
     }
 }

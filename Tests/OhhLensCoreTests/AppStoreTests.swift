@@ -20,4 +20,18 @@ final class AppStoreTests: XCTestCase {
         XCTAssertTrue(store.isListening)
         XCTAssertEqual(store.statusText, "Listening")
     }
+
+    @MainActor
+    func test_overlayModeCanSwitchBetweenAllThreeDisplayModes() {
+        let store = AppStore()
+
+        store.captionMode = .originalOnly
+        XCTAssertEqual(store.captionMode, .originalOnly)
+
+        store.captionMode = .translationOnly
+        XCTAssertEqual(store.captionMode, .translationOnly)
+
+        store.captionMode = .dualLine
+        XCTAssertEqual(store.captionMode, .dualLine)
+    }
 }
