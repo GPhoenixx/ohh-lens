@@ -15,6 +15,7 @@ struct OhhLensApp: App {
 
         Settings {
             SetupView()
+                .environment(appStore)
                 .frame(width: 680, height: 520)
         }
     }
