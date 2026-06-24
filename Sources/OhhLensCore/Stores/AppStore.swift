@@ -9,6 +9,7 @@ public final class AppStore {
     public var languagePair = LanguagePair(source: "auto", target: "en")
     public var isListening = false
     public var statusText = "Idle"
+    public var backendStatusText = "Backend idle"
 
     public init() {}
 
@@ -20,6 +21,10 @@ public final class AppStore {
     public func stopListening() {
         isListening = false
         statusText = "Idle"
+    }
+
+    public func updateBackendStatus(_ text: String) {
+        backendStatusText = text
     }
 }
 
