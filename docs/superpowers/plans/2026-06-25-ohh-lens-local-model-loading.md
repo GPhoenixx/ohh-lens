@@ -14,7 +14,7 @@
 
 - [x] Task 1 complete: add strict local model path config and health visibility
 - [x] Task 2 complete: update the real FunASR adapter to require a local path
-- [-] Task 3 in progress: document local-model setup and verify the backend suite
+- [x] Task 3 complete: document local-model setup and verify the backend suite
 
 ## File Structure
 

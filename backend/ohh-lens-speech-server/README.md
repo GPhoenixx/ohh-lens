@@ -11,6 +11,19 @@ Current note:
 
 - FunASR currently pulls a transitive dependency chain that does not install cleanly on Python `3.11` in this project setup.
 - Use Python `3.9` for the real backend environment until the upstream dependency chain is updated.
+- The real adapter now loads strictly from a local filesystem path. It will not fall back to remote model resolution.
+
+## Local model setup
+
+Default local model path:
+
+- `~/.ohh-lens/models/funasr`
+
+Override with an environment variable:
+
+- `FUNASR_MODEL_PATH=/absolute/path/to/your/local/funasr-model`
+
+The backend expects that path to already exist on disk before startup. If it is missing or invalid, `/health` will report `backend_ready: false`.
 
 ## Run locally
 
@@ -18,6 +31,7 @@ Current note:
 cd /Users/steve/dev/personal/ohh-lens/backend/ohh-lens-speech-server
 python3 -m venv .venv
 source .venv/bin/activate
+export FUNASR_MODEL_PATH="$HOME/.ohh-lens/models/funasr"
 pip install -e .[dev]
 uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ```
@@ -44,7 +58,9 @@ Expected shape:
   "channels": 1,
   "sample_format": "pcm_s16le",
   "backend_ready": true,
-  "model": "funasr-streaming"
+  "model": "funasr-streaming",
+  "model_path": "/Users/you/.ohh-lens/models/funasr",
+  "model_path_configured": true
 }
 ```
 
@@ -103,7 +119,8 @@ If execution stops unexpectedly, resume from the task plan instead of guessing:
 If the server crashes during local development:
 
 1. Restart the virtual environment with `source .venv/bin/activate`.
-2. Re-run `uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload`.
-3. Confirm recovery with `curl http://127.0.0.1:8765/health`.
-4. If `backend_ready` is still `false`, reinstall dependencies with `pip install -e .[dev]` and retry.
-5. If install fails on Python `3.11`, switch to Python `3.9` for the real backend environment instead of retrying the same interpreter.
+2. Confirm `FUNASR_MODEL_PATH` still points at the expected local model directory.
+3. Re-run `uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload`.
+4. Confirm recovery with `curl http://127.0.0.1:8765/health`.
+5. If `backend_ready` is still `false`, verify that `model_path` in `/health` matches the real directory on disk before reinstalling anything.
+6. If install fails on Python `3.11`, switch to Python `3.9` for the real backend environment instead of retrying the same interpreter.
