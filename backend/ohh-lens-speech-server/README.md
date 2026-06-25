@@ -4,8 +4,13 @@ Local FastAPI server for incremental speech transcription during Ohh Lens develo
 
 ## Requirements
 
-- Python 3.11 or newer
+- Python 3.9.x
 - A shell with `python3`, `pip`, and `curl`
+
+Current note:
+
+- FunASR currently pulls a transitive dependency chain that does not install cleanly on Python `3.11` in this project setup.
+- Use Python `3.9` for the real backend environment until the upstream dependency chain is updated.
 
 ## Run locally
 
@@ -49,7 +54,17 @@ If `backend_ready` is `false`, the server is up but the FunASR adapter did not l
 
 ```bash
 cd /Users/steve/dev/personal/ohh-lens/backend/ohh-lens-speech-server
+source .venv/bin/activate
 pytest tests -v
+```
+
+If you are only validating the protocol layer on a machine that already has Python `3.11`, use the fallback command we verified in development:
+
+```bash
+HOME=/Users/steve/dev/personal/ohh-lens/backend/ohh-lens-speech-server/.home \
+UV_CACHE_DIR=/Users/steve/dev/personal/ohh-lens/backend/ohh-lens-speech-server/.uv-cache-local \
+PYTHONPATH=/Users/steve/dev/personal/ohh-lens/backend/ohh-lens-speech-server \
+uv run --no-project --with fastapi --with 'uvicorn[standard]' --with pydantic --with numpy --with pytest --with pytest-asyncio --with httpx python -m pytest tests -v
 ```
 
 ## Connect from Ohh Lens
@@ -91,3 +106,4 @@ If the server crashes during local development:
 2. Re-run `uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload`.
 3. Confirm recovery with `curl http://127.0.0.1:8765/health`.
 4. If `backend_ready` is still `false`, reinstall dependencies with `pip install -e .[dev]` and retry.
+5. If install fails on Python `3.11`, switch to Python `3.9` for the real backend environment instead of retrying the same interpreter.

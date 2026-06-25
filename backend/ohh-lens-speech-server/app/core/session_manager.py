@@ -10,6 +10,8 @@ class SessionManager:
         self.buffers: dict[str, PCMChunkBuffer] = {}
 
     def start_session(self, session_id: str) -> dict:
+        if session_id in self.buffers:
+            raise ValueError(f"session is already active: {session_id}")
         self.buffers[session_id] = PCMChunkBuffer(chunk_bytes=self.chunk_bytes)
         self.adapter.begin(session_id)
         return event_payload("ready", session_id)

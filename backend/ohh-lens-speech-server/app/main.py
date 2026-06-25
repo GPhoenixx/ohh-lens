@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI
 
@@ -13,7 +14,7 @@ from app.funasr.adapter import (
 
 
 def _create_app(
-    adapter: StreamingAdapter | None = None, adapter_ready: bool = False
+    adapter: Optional[StreamingAdapter] = None, adapter_ready: bool = False
 ) -> FastAPI:
     settings = get_settings()
     active_adapter = adapter or FunASRStreamingAdapter()
@@ -40,7 +41,9 @@ def _create_app(
     return app
 
 
-def create_app(adapter_ready: bool = False, adapter: StreamingAdapter | None = None) -> FastAPI:
+def create_app(
+    adapter_ready: bool = False, adapter: Optional[StreamingAdapter] = None
+) -> FastAPI:
     return _create_app(adapter=adapter, adapter_ready=adapter_ready)
 
 

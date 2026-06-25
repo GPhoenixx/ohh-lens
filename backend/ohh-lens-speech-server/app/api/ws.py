@@ -1,4 +1,5 @@
 import json
+from typing import Optional
 
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
@@ -25,7 +26,7 @@ def build_ws_router(
             await websocket.close()
             return
 
-        session_id: str | None = None
+        session_id: Optional[str] = None
 
         try:
             while True:
