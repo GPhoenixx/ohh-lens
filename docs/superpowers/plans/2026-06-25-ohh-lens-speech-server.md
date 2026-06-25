@@ -12,8 +12,8 @@
 
 ## Progress Tracking
 
-- [ ] Task 1 pending: scaffold the backend project and health surface
-- [ ] Task 2 pending: define protocol types and deterministic PCM buffering
+- [x] Task 1 complete: scaffold the backend project and health surface
+- [-] Task 2 in progress: define protocol types and deterministic PCM buffering
 - [ ] Task 3 pending: add session orchestration and WebSocket flow with a fake streaming engine
 - [ ] Task 4 pending: integrate the real FunASR adapter and readiness gating
 - [ ] Task 5 pending: document running, testing, and crash-recovery workflow
