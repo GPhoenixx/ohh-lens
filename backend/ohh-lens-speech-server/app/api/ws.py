@@ -6,14 +6,25 @@ from pydantic import ValidationError
 
 from app.core.protocol import StartMessage, StopMessage
 from app.core.session_manager import SessionManager
+from app.funasr.adapter import StreamingAdapter
 
 
-def build_ws_router(session_manager: SessionManager) -> APIRouter:
+def build_ws_router(
+    session_manager: SessionManager, adapter: StreamingAdapter
+) -> APIRouter:
     router = APIRouter()
 
     @router.websocket("/ws/transcribe")
     async def transcribe_socket(websocket: WebSocket) -> None:
         await websocket.accept()
+
+        if not adapter.ready():
+            await websocket.send_json(
+                {"type": "error", "message": "backend not ready"}
+            )
+            await websocket.close()
+            return
+
         session_id: str | None = None
 
         try:
@@ -58,8 +69,13 @@ def build_ws_router(session_manager: SessionManager) -> APIRouter:
                         )
                         await websocket.close()
                         return
-                    for event in session_manager.push_audio(session_id, message["bytes"]):
-                        await websocket.send_json(event)
+                    try:
+                        for event in session_manager.push_audio(session_id, message["bytes"]):
+                            await websocket.send_json(event)
+                    except Exception as error:
+                        await websocket.send_json({"type": "error", "message": str(error)})
+                        await websocket.close()
+                        return
         except WebSocketDisconnect:
             return
         finally:

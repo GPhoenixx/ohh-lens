@@ -1,10 +1,34 @@
 from fastapi.testclient import TestClient
 
+from app.core.session_manager import SessionManager
+from app.funasr.adapter import FakeStreamingAdapter
 from app.main import create_app
 
 
+class NeverReadyAdapter:
+    def ready(self) -> bool:
+        return False
+
+
+class BrokenAudioAdapter:
+    def load(self) -> None:
+        return None
+
+    def ready(self) -> bool:
+        return True
+
+    def begin(self, session_id: str) -> None:
+        return None
+
+    def push_audio(self, session_id: str, chunk: bytes, is_final: bool) -> list:
+        raise ValueError("bad audio chunk")
+
+    def end(self, session_id: str) -> None:
+        return None
+
+
 def test_ws_transcribe_emits_ready_partial_final_closed():
-    client = TestClient(create_app())
+    client = TestClient(create_app(adapter=FakeStreamingAdapter()))
 
     with client.websocket_connect("/ws/transcribe") as websocket:
         websocket.send_json(
@@ -34,7 +58,7 @@ def test_ws_transcribe_emits_ready_partial_final_closed():
 
 
 def test_ws_transcribe_rejects_invalid_start_message():
-    client = TestClient(create_app())
+    client = TestClient(create_app(adapter=FakeStreamingAdapter()))
 
     with client.websocket_connect("/ws/transcribe") as websocket:
         websocket.send_json(
@@ -55,7 +79,7 @@ def test_ws_transcribe_rejects_invalid_start_message():
 
 
 def test_ws_transcribe_rejects_unknown_message_type():
-    client = TestClient(create_app())
+    client = TestClient(create_app(adapter=FakeStreamingAdapter()))
 
     with client.websocket_connect("/ws/transcribe") as websocket:
         websocket.send_json({"type": "ping"})
@@ -67,7 +91,7 @@ def test_ws_transcribe_rejects_unknown_message_type():
 
 
 def test_ws_transcribe_rejects_malformed_text_message():
-    client = TestClient(create_app())
+    client = TestClient(create_app(adapter=FakeStreamingAdapter()))
 
     with client.websocket_connect("/ws/transcribe") as websocket:
         websocket.send_text('{"bad": true}')
@@ -79,7 +103,7 @@ def test_ws_transcribe_rejects_malformed_text_message():
 
 
 def test_ws_transcribe_rejects_duplicate_start_message():
-    client = TestClient(create_app())
+    client = TestClient(create_app(adapter=FakeStreamingAdapter()))
 
     with client.websocket_connect("/ws/transcribe") as websocket:
         start_message = {
@@ -99,3 +123,50 @@ def test_ws_transcribe_rejects_duplicate_start_message():
 
         assert error_event["type"] == "error"
         assert "already started" in error_event["message"]
+
+
+def test_ws_transcribe_rejects_connections_when_adapter_is_not_ready():
+    client = TestClient(create_app(adapter=NeverReadyAdapter()))
+
+    with client.websocket_connect("/ws/transcribe") as websocket:
+        error_event = websocket.receive_json()
+
+        assert error_event["type"] == "error"
+        assert "backend not ready" in error_event["message"]
+
+
+def test_session_manager_rejects_duplicate_active_session_id():
+    session_manager = SessionManager(adapter=FakeStreamingAdapter())
+
+    session_manager.start_session("shared-session")
+
+    try:
+        session_manager.start_session("shared-session")
+    except ValueError as error:
+        assert "already active" in str(error)
+    else:
+        raise AssertionError("expected duplicate session validation error")
+
+
+def test_ws_transcribe_returns_structured_error_when_audio_processing_fails():
+    client = TestClient(create_app(adapter=BrokenAudioAdapter()))
+
+    with client.websocket_connect("/ws/transcribe") as websocket:
+        websocket.send_json(
+            {
+                "type": "start",
+                "session_id": "session-error",
+                "sample_rate": 16000,
+                "channels": 1,
+                "sample_format": "pcm_s16le",
+                "language": "auto",
+            }
+        )
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+
+        websocket.send_bytes(b"\x00\x01" * 4000)
+        error_event = websocket.receive_json()
+
+        assert error_event["type"] == "error"
+        assert "bad audio chunk" in error_event["message"]
