@@ -16,7 +16,7 @@
 - [x] Task 2 complete: define protocol types and deterministic PCM buffering
 - [x] Task 3 complete: add session orchestration and WebSocket flow with a fake streaming engine
 - [x] Task 4 complete: integrate the real FunASR adapter and readiness gating
-- [-] Task 5 in progress: document running, testing, and crash-recovery workflow
+- [x] Task 5 complete: document running, testing, and crash-recovery workflow
 
 When executing this plan, update the task line statuses directly:
 
