@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Protocol
 
 from app.funasr.models import StreamingResult
@@ -35,15 +36,22 @@ class FakeStreamingAdapter:
 
 
 class FunASRStreamingAdapter:
-    def __init__(self, model_name: str = "funasr-streaming") -> None:
-        self.model_name = model_name
+    def __init__(self, model_path: str) -> None:
+        self.model_path = model_path
         self._model = None
         self._caches: dict[str, object] = {}
 
     def load(self) -> None:
+        if not self.model_path:
+            raise ValueError("FUNASR_MODEL_PATH is required")
+
+        model_path = Path(self.model_path)
+        if not model_path.exists():
+            raise FileNotFoundError(f"FunASR model path does not exist: {self.model_path}")
+
         from funasr import AutoModel
 
-        self._model = AutoModel(model=self.model_name)
+        self._model = AutoModel(model=str(model_path))
 
     def begin(self, session_id: str) -> None:
         self._caches[session_id] = {}

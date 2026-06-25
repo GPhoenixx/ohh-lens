@@ -17,7 +17,9 @@ def _create_app(
     adapter: Optional[StreamingAdapter] = None, adapter_ready: bool = False
 ) -> FastAPI:
     settings = get_settings()
-    active_adapter = adapter or FunASRStreamingAdapter()
+    active_adapter = adapter or FunASRStreamingAdapter(
+        model_path=settings.funasr_model_path or ""
+    )
     session_manager = SessionManager(adapter=active_adapter)
     
     @asynccontextmanager

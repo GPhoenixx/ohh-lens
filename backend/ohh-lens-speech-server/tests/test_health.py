@@ -1,3 +1,5 @@
+import os
+
 from fastapi.testclient import TestClient
 
 import app.main as app_main
@@ -6,7 +8,8 @@ from app.main import create_app
 
 
 class StubReadyFunASRAdapter:
-    def __init__(self) -> None:
+    def __init__(self, model_path: str) -> None:
+        self.model_path = model_path
         self._ready = False
 
     def load(self) -> None:
@@ -14,6 +17,18 @@ class StubReadyFunASRAdapter:
 
     def ready(self) -> bool:
         return True
+
+
+class StubPathAwareFunASRAdapter:
+    def __init__(self, model_path: str) -> None:
+        self.model_path = model_path
+        self._ready = False
+
+    def load(self) -> None:
+        self._ready = bool(self.model_path)
+
+    def ready(self) -> bool:
+        return self._ready
 
 
 def test_health_reports_expected_defaults():
@@ -41,11 +56,10 @@ def test_health_reports_backend_ready_when_adapter_is_ready():
     app_main.FunASRStreamingAdapter = StubReadyFunASRAdapter
 
     try:
-        client = TestClient(create_app(adapter_ready=True))
+        with TestClient(create_app(adapter_ready=True)) as client:
+            response = client.get("/health")
     finally:
         app_main.FunASRStreamingAdapter = original_adapter
-
-    response = client.get("/health")
 
     assert response.status_code == 200
     assert response.json()["backend_ready"] is True
@@ -60,3 +74,24 @@ def test_health_reports_local_model_path_from_config():
     assert response.status_code == 200
     assert response.json()["model_path"] == settings.funasr_model_path
     assert response.json()["model_path_configured"] is bool(settings.funasr_model_path)
+
+
+def test_health_uses_local_model_path_when_building_real_adapter():
+    original_adapter = app_main.FunASRStreamingAdapter
+    original_path = os.environ.get("FUNASR_MODEL_PATH")
+    os.environ["FUNASR_MODEL_PATH"] = "/tmp/local-funasr-model"
+    app_main.FunASRStreamingAdapter = StubPathAwareFunASRAdapter
+
+    try:
+        with TestClient(create_app(adapter_ready=True)) as client:
+            response = client.get("/health")
+    finally:
+        app_main.FunASRStreamingAdapter = original_adapter
+        if original_path is None:
+            os.environ.pop("FUNASR_MODEL_PATH", None)
+        else:
+            os.environ["FUNASR_MODEL_PATH"] = original_path
+
+    assert response.status_code == 200
+    assert response.json()["backend_ready"] is True
+    assert response.json()["model_path"] == "/tmp/local-funasr-model"

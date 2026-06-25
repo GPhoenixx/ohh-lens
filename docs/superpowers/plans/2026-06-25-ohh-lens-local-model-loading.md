@@ -13,8 +13,8 @@
 ## Progress Tracking
 
 - [x] Task 1 complete: add strict local model path config and health visibility
-- [-] Task 2 in progress: update the real FunASR adapter to require a local path
-- [ ] Task 3 pending: document local-model setup and verify the backend suite
+- [x] Task 2 complete: update the real FunASR adapter to require a local path
+- [-] Task 3 in progress: document local-model setup and verify the backend suite
 
 ## File Structure
 
