@@ -14,8 +14,8 @@
 
 - [x] Task 1 complete: scaffold the backend project and health surface
 - [x] Task 2 complete: define protocol types and deterministic PCM buffering
-- [-] Task 3 in progress: add session orchestration and WebSocket flow with a fake streaming engine
-- [ ] Task 4 pending: integrate the real FunASR adapter and readiness gating
+- [x] Task 3 complete: add session orchestration and WebSocket flow with a fake streaming engine
+- [-] Task 4 in progress: integrate the real FunASR adapter and readiness gating
 - [ ] Task 5 pending: document running, testing, and crash-recovery workflow
 
 When executing this plan, update the task line statuses directly:
