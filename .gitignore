@@ -1,3 +1,11 @@
 .build/
 .cache/
 .home/
+.swiftpm/
+.codex/
+.superpowers/
+.DS_Store
+**/.DS_Store
+**/__pycache__/
+**/*.egg-info/
+backend/ohh-lens-speech-server/.modelscope-cache/

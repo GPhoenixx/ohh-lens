@@ -6,6 +6,7 @@ public final class LoopbackCaptureService: NSObject, AudioCaptureServicing {
     public let source: AudioSource
     public private(set) var currentLevel = AudioLevelSnapshot()
     public var onLevelUpdate: (@Sendable (AudioLevelSnapshot) -> Void)?
+    public var onPCMChunk: (@Sendable (Data) -> Void)?
 
     private let deviceID: String?
     private let isTestDouble: Bool
@@ -77,6 +78,130 @@ public final class LoopbackCaptureService: NSObject, AudioCaptureServicing {
     func receiveTestPower(average: Float, peak: Float) {
         publish(level: Self.makeLevelSnapshot(average: average, peak: peak))
     }
+
+    func receiveTestPCMChunk(_ data: Data) {
+        onPCMChunk?(data)
+    }
+}
+
+extension LoopbackCaptureService {
+    static let backendSampleRate = 16_000.0
+
+    static func pcmS16Mono16kChunk(from pcmBuffer: AVAudioPCMBuffer) -> Data? {
+        let inputSampleRate = pcmBuffer.format.sampleRate
+        let frameLength = Int(pcmBuffer.frameLength)
+
+        guard inputSampleRate > 0, frameLength > 0 else {
+            return nil
+        }
+
+        let monoSamples: [Float]
+
+        switch pcmBuffer.format.commonFormat {
+        case .pcmFormatFloat32:
+            guard let channelData = pcmBuffer.floatChannelData else {
+                return nil
+            }
+            monoSamples = monoFloatSamples(from: channelData, channelCount: Int(pcmBuffer.format.channelCount), frameLength: frameLength)
+        case .pcmFormatInt16:
+            guard let channelData = pcmBuffer.int16ChannelData else {
+                return nil
+            }
+            monoSamples = monoFloatSamples(from: channelData, channelCount: Int(pcmBuffer.format.channelCount), frameLength: frameLength)
+        default:
+            return nil
+        }
+
+        guard monoSamples.isEmpty == false else {
+            return nil
+        }
+
+        let outputSamples = resample(monoSamples, from: inputSampleRate, to: backendSampleRate)
+        guard outputSamples.isEmpty == false else {
+            return nil
+        }
+
+        return int16LittleEndianData(from: outputSamples)
+    }
+
+    private static func monoFloatSamples(
+        from channelData: UnsafePointer<UnsafeMutablePointer<Float>>,
+        channelCount: Int,
+        frameLength: Int
+    ) -> [Float] {
+        guard channelCount > 0, frameLength > 0 else {
+            return []
+        }
+
+        var samples = Array(repeating: Float.zero, count: frameLength)
+        for channel in 0..<channelCount {
+            let channelSamples = channelData[channel]
+            for frame in 0..<frameLength {
+                samples[frame] += channelSamples[frame]
+            }
+        }
+
+        let divisor = Float(channelCount)
+        for frame in 0..<frameLength {
+            samples[frame] /= divisor
+        }
+        return samples
+    }
+
+    private static func monoFloatSamples(
+        from channelData: UnsafePointer<UnsafeMutablePointer<Int16>>,
+        channelCount: Int,
+        frameLength: Int
+    ) -> [Float] {
+        guard channelCount > 0, frameLength > 0 else {
+            return []
+        }
+
+        var samples = Array(repeating: Float.zero, count: frameLength)
+        for channel in 0..<channelCount {
+            let channelSamples = channelData[channel]
+            for frame in 0..<frameLength {
+                samples[frame] += Float(channelSamples[frame]) / 32768.0
+            }
+        }
+
+        let divisor = Float(channelCount)
+        for frame in 0..<frameLength {
+            samples[frame] /= divisor
+        }
+        return samples
+    }
+
+    private static func resample(_ samples: [Float], from inputSampleRate: Double, to outputSampleRate: Double) -> [Float] {
+        if inputSampleRate == outputSampleRate {
+            return samples
+        }
+
+        let outputCount = max(1, Int(Double(samples.count) * outputSampleRate / inputSampleRate))
+        var output = Array(repeating: Float.zero, count: outputCount)
+
+        for index in 0..<outputCount {
+            let sourcePosition = Double(index) * inputSampleRate / outputSampleRate
+            let lowerIndex = min(Int(sourcePosition), samples.count - 1)
+            let upperIndex = min(lowerIndex + 1, samples.count - 1)
+            let fraction = Float(sourcePosition - Double(lowerIndex))
+            output[index] = samples[lowerIndex] + (samples[upperIndex] - samples[lowerIndex]) * fraction
+        }
+
+        return output
+    }
+
+    private static func int16LittleEndianData(from samples: [Float]) -> Data {
+        var data = Data(capacity: samples.count * MemoryLayout<Int16>.size)
+        for sample in samples {
+            let clipped = min(max(sample, -1.0), 1.0)
+            var value = Int16(clipped * Float(Int16.max)).littleEndian
+            withUnsafeBytes(of: &value) { bytes in
+                data.append(contentsOf: bytes)
+            }
+        }
+        return data
+    }
 }
 
 private extension LoopbackCaptureService {
@@ -133,11 +258,13 @@ private extension LoopbackCaptureService {
     }
 
     func handleSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-        guard let snapshot = Self.levelSnapshot(from: sampleBuffer) else {
-            return
+        if let snapshot = Self.levelSnapshot(from: sampleBuffer) {
+            publish(level: snapshot)
         }
 
-        publish(level: snapshot)
+        if let chunk = Self.pcmChunk(from: sampleBuffer) {
+            onPCMChunk?(chunk)
+        }
     }
 
     func publish(level: AudioLevelSnapshot) {
@@ -154,6 +281,31 @@ private extension LoopbackCaptureService {
     }
 
     static func levelSnapshot(from sampleBuffer: CMSampleBuffer) -> AudioLevelSnapshot? {
+        guard let pcmBuffer = pcmBuffer(from: sampleBuffer) else {
+            return nil
+        }
+
+        let format = pcmBuffer.format
+
+        switch format.commonFormat {
+        case .pcmFormatFloat32:
+            return snapshotFromFloat32Buffer(pcmBuffer)
+        case .pcmFormatInt16:
+            return snapshotFromInt16Buffer(pcmBuffer)
+        default:
+            return nil
+        }
+    }
+
+    static func pcmChunk(from sampleBuffer: CMSampleBuffer) -> Data? {
+        guard let pcmBuffer = pcmBuffer(from: sampleBuffer) else {
+            return nil
+        }
+
+        return pcmS16Mono16kChunk(from: pcmBuffer)
+    }
+
+    static func pcmBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
         guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
               let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else {
             return nil
@@ -181,14 +333,7 @@ private extension LoopbackCaptureService {
             return nil
         }
 
-        switch format.commonFormat {
-        case .pcmFormatFloat32:
-            return snapshotFromFloat32Buffer(pcmBuffer)
-        case .pcmFormatInt16:
-            return snapshotFromInt16Buffer(pcmBuffer)
-        default:
-            return nil
-        }
+        return pcmBuffer
     }
 
     static func snapshotFromFloat32Buffer(_ buffer: AVAudioPCMBuffer) -> AudioLevelSnapshot? {

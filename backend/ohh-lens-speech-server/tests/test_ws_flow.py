@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.core.protocol import StartMessage
 from app.core.session_manager import SessionManager
 from app.funasr.adapter import FakeStreamingAdapter
 from app.main import create_app
@@ -10,6 +11,26 @@ class NeverReadyAdapter:
         return False
 
 
+class LanguageCapturingAdapter:
+    def __init__(self) -> None:
+        self.languages: list[str] = []
+
+    def load(self) -> None:
+        return None
+
+    def ready(self) -> bool:
+        return True
+
+    def begin(self, session_id: str, language: str = "auto") -> None:
+        self.languages.append(language)
+
+    def push_audio(self, session_id: str, chunk: bytes, is_final: bool) -> list:
+        return []
+
+    def end(self, session_id: str) -> None:
+        return None
+
+
 class BrokenAudioAdapter:
     def load(self) -> None:
         return None
@@ -17,7 +38,7 @@ class BrokenAudioAdapter:
     def ready(self) -> bool:
         return True
 
-    def begin(self, session_id: str) -> None:
+    def begin(self, session_id: str, language: str = "auto") -> None:
         return None
 
     def push_audio(self, session_id: str, chunk: bytes, is_final: bool) -> list:
@@ -25,6 +46,28 @@ class BrokenAudioAdapter:
 
     def end(self, session_id: str) -> None:
         return None
+
+
+def test_session_manager_buffers_short_audio_before_emitting_subtitle_events():
+    session_manager = SessionManager(adapter=FakeStreamingAdapter())
+    start = StartMessage(
+        type="start",
+        session_id="session-buffering",
+        sample_rate=16000,
+        channels=1,
+        sample_format="pcm_s16le",
+        language="en",
+    )
+
+    session_manager.start_session("session-buffering", start)
+
+    first_events = session_manager.push_audio("session-buffering", b"\x00\x01" * 4000)
+    assert first_events == []
+
+    second_events = session_manager.push_audio("session-buffering", b"\x00\x01" * 28000)
+    assert len(second_events) == 1
+    assert second_events[0]["type"] == "partial"
+    assert second_events[0]["text"] == "partial text"
 
 
 def test_ws_transcribe_emits_ready_partial_final_closed():
@@ -44,7 +87,7 @@ def test_ws_transcribe_emits_ready_partial_final_closed():
         ready = websocket.receive_json()
         assert ready["type"] == "ready"
 
-        websocket.send_bytes(b"\x00\x01" * 4000)
+        websocket.send_bytes(b"\x00\x01" * 32000)
         partial = websocket.receive_json()
         assert partial["type"] == "partial"
         assert partial["text"] == "partial text"
@@ -137,15 +180,47 @@ def test_ws_transcribe_rejects_connections_when_adapter_is_not_ready():
 
 def test_session_manager_rejects_duplicate_active_session_id():
     session_manager = SessionManager(adapter=FakeStreamingAdapter())
+    start = StartMessage(
+        type="start",
+        session_id="shared-session",
+        sample_rate=16000,
+        channels=1,
+        sample_format="pcm_s16le",
+        language="auto",
+    )
 
-    session_manager.start_session("shared-session")
+    session_manager.start_session("shared-session", start)
 
     try:
-        session_manager.start_session("shared-session")
+        session_manager.start_session("shared-session", start)
     except ValueError as error:
         assert "already active" in str(error)
     else:
         raise AssertionError("expected duplicate session validation error")
+
+
+def test_ws_transcribe_forwards_language_hint_to_adapter():
+    adapter = LanguageCapturingAdapter()
+    client = TestClient(create_app(adapter=adapter))
+
+    with client.websocket_connect("/ws/transcribe") as websocket:
+        websocket.send_json(
+            {
+                "type": "start",
+                "session_id": "session-language",
+                "sample_rate": 16000,
+                "channels": 1,
+                "sample_format": "pcm_s16le",
+                "language": "en",
+            }
+        )
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        websocket.send_json({"type": "stop"})
+        closed_event = websocket.receive_json()
+        assert closed_event["type"] == "closed"
+
+    assert adapter.languages == ["en"]
 
 
 def test_ws_transcribe_returns_structured_error_when_audio_processing_fails():
@@ -165,7 +240,7 @@ def test_ws_transcribe_returns_structured_error_when_audio_processing_fails():
         ready = websocket.receive_json()
         assert ready["type"] == "ready"
 
-        websocket.send_bytes(b"\x00\x01" * 4000)
+        websocket.send_bytes(b"\x00\x01" * 32000)
         error_event = websocket.receive_json()
 
         assert error_event["type"] == "error"

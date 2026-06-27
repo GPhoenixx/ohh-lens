@@ -59,7 +59,7 @@ struct LiveView: View {
                                 }
                                 .pickerStyle(.menu)
 
-                                Text(appStore.captureLevel.detectedSound ? "Audio is flowing from the selected loopback device." : "Capture is armed. Start YouTube playback and Ohh Lens will listen for routed audio.")
+                                Text("Capture is armed. Start playback through the selected loopback device and Ohh Lens will listen for routed audio.")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
@@ -106,6 +106,25 @@ struct LiveView: View {
                     Text(sessionSummary(for: appStore))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    if appStore.liveTranscriptState.visibleCaptionLines.isEmpty == false {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(Array(appStore.liveTranscriptState.visibleCaptionLines.enumerated()), id: \.offset) { index, line in
+                                Text(line)
+                                    .font(index == appStore.liveTranscriptState.visibleCaptionLines.count - 1 ? .title3.weight(.semibold) : .body)
+                                    .foregroundStyle(index == appStore.liveTranscriptState.visibleCaptionLines.count - 1 ? .primary : .secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+
+                    if let lastError = appStore.liveTranscriptState.lastError {
+                        Text(lastError)
+                            .foregroundStyle(.red)
+                    }
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -141,7 +160,7 @@ struct LiveView: View {
 
         let flowSummary: String
         if store.selectedSource == .systemAudio || store.selectedSource == .appAudio {
-            flowSummary = store.captureLevel.detectedSound ? "Audio detected from \(store.selectedLoopbackDeviceName() ?? "loopback device")." : "Waiting for loopback audio."
+            flowSummary = "Loopback device: \(store.selectedLoopbackDeviceName() ?? "not selected")."
         } else {
             flowSummary = "Capture is not using a loopback device."
         }

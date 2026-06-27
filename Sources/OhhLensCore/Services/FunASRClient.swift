@@ -4,6 +4,21 @@ public protocol FunASRServicing: Sendable {
     func healthCheck() async -> Bool
 }
 
+public enum FunASRStreamingEvent: Equatable, Sendable {
+    case ready
+    case partial(String)
+    case final(String)
+    case error(String)
+    case closed
+}
+
+public protocol FunASRStreamingServicing: Sendable {
+    func startSession(language: String) async throws
+    func sendAudioChunk(_ data: Data) async throws
+    func stopSession() async
+    func nextEvent() async throws -> FunASRStreamingEvent
+}
+
 public struct FunASRClient: FunASRServicing {
     public let baseURL: URL
 

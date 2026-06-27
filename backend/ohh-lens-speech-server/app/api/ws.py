@@ -48,7 +48,7 @@ def build_ws_router(
                             start = StartMessage.model_validate_json(payload)
                             session_id = start.session_id
                             await websocket.send_json(
-                                session_manager.start_session(session_id)
+                                session_manager.start_session(session_id, start)
                             )
                         elif message_type == "stop":
                             StopMessage.model_validate_json(payload)

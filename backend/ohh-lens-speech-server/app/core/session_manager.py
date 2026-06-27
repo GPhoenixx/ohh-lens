@@ -1,19 +1,19 @@
+from app.core.protocol import StartMessage, event_payload
 from app.audio.buffer import PCMChunkBuffer
-from app.core.protocol import event_payload
 from app.funasr.adapter import StreamingAdapter
 
 
 class SessionManager:
-    def __init__(self, adapter: StreamingAdapter, chunk_bytes: int = 8000) -> None:
+    def __init__(self, adapter: StreamingAdapter, chunk_bytes: int = 64000) -> None:
         self.adapter = adapter
         self.chunk_bytes = chunk_bytes
         self.buffers: dict[str, PCMChunkBuffer] = {}
 
-    def start_session(self, session_id: str) -> dict:
+    def start_session(self, session_id: str, start_message: StartMessage) -> dict:
         if session_id in self.buffers:
             raise ValueError(f"session is already active: {session_id}")
         self.buffers[session_id] = PCMChunkBuffer(chunk_bytes=self.chunk_bytes)
-        self.adapter.begin(session_id)
+        self.adapter.begin(session_id, language=start_message.language)
         return event_payload("ready", session_id)
 
     def push_audio(self, session_id: str, audio: bytes) -> list[dict]:

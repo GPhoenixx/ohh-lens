@@ -4,43 +4,58 @@ Local FastAPI server for incremental speech transcription during Ohh Lens develo
 
 ## Requirements
 
-- Python 3.9.x
-- A shell with `python3`, `pip`, and `curl`
+- Python 3.11.x
+- A shell with `uv` and `curl`
+- Apple Silicon is the intended first target for the default `mps` runtime
 
 Current note:
 
-- FunASR currently pulls a transitive dependency chain that does not install cleanly on Python `3.11` in this project setup.
-- Use Python `3.9` for the real backend environment until the upstream dependency chain is updated.
-- The real adapter now loads strictly from a local filesystem path. It will not fall back to remote model resolution.
+- The backend is pinned to Python `3.11`.
+- Use `uv` for environment creation and dependency sync so the local environment matches the lockfile.
 
-## Local model setup
+## Runtime defaults
 
-Default local model path:
+- Model: `iic/SenseVoiceSmall`
+- Device: `mps`
 
-- `~/.ohh-lens/models/funasr`
+This is the English-first default runtime for the current backend slice.
 
-Override with an environment variable:
+Override with environment variables when needed:
 
-- `FUNASR_MODEL_PATH=/absolute/path/to/your/local/funasr-model`
+- `FUNASR_MODEL_NAME=iic/SenseVoiceSmall`
+- `FUNASR_DEVICE=mps`
 
-The backend expects that path to already exist on disk before startup. If it is missing or invalid, `/health` will report `backend_ready: false`.
+FunASR resolves the configured model through `AutoModel(...)`. If the model is not already present locally, FunASR may download it on first use.
 
 ## Run locally
 
 ```bash
 cd /Users/steve/dev/personal/ohh-lens/backend/ohh-lens-speech-server
-python3 -m venv .venv
+UV_CACHE_DIR="$PWD/.uv-cache-local" uv venv --python 3.11 .venv
 source .venv/bin/activate
-export FUNASR_MODEL_PATH="$HOME/.ohh-lens/models/funasr"
-pip install -e .[dev]
+UV_CACHE_DIR="$PWD/.uv-cache-local" uv sync --extra dev
+export FUNASR_MODEL_NAME="iic/SenseVoiceSmall"
+export FUNASR_DEVICE="mps"
+export MODELSCOPE_CACHE="$PWD/.modelscope-cache"
 uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
 What this does:
 
 - creates an isolated virtual environment in `.venv`
-- installs the app plus test dependencies in editable mode
+- installs the runtime and dev dependencies from `pyproject.toml` and `uv.lock`
+- configures the default `SenseVoice` + `mps` runtime explicitly
+- stores downloaded FunASR model assets in a project-local cache
 - starts the FastAPI server on `127.0.0.1:8765`
+
+Example override:
+
+```bash
+export FUNASR_MODEL_NAME="iic/SenseVoiceSmall"
+export FUNASR_DEVICE="cpu"
+```
+
+Use `cpu` if you need a fallback on a machine where `mps` is unavailable.
 
 ## Check health
 
@@ -58,9 +73,8 @@ Expected shape:
   "channels": 1,
   "sample_format": "pcm_s16le",
   "backend_ready": true,
-  "model": "funasr-streaming",
-  "model_path": "/Users/you/.ohh-lens/models/funasr",
-  "model_path_configured": true
+  "model": "iic/SenseVoiceSmall",
+  "device": "mps"
 }
 ```
 
@@ -71,16 +85,14 @@ If `backend_ready` is `false`, the server is up but the FunASR adapter did not l
 ```bash
 cd /Users/steve/dev/personal/ohh-lens/backend/ohh-lens-speech-server
 source .venv/bin/activate
-pytest tests -v
+uv run pytest tests -v
 ```
 
-If you are only validating the protocol layer on a machine that already has Python `3.11`, use the fallback command we verified in development:
+If you are only validating the protocol layer in an isolated shell, use:
 
 ```bash
-HOME=/Users/steve/dev/personal/ohh-lens/backend/ohh-lens-speech-server/.home \
 UV_CACHE_DIR=/Users/steve/dev/personal/ohh-lens/backend/ohh-lens-speech-server/.uv-cache-local \
-PYTHONPATH=/Users/steve/dev/personal/ohh-lens/backend/ohh-lens-speech-server \
-uv run --no-project --with fastapi --with 'uvicorn[standard]' --with pydantic --with numpy --with pytest --with pytest-asyncio --with httpx python -m pytest tests -v
+uv run pytest tests -v
 ```
 
 ## Connect from Ohh Lens
@@ -110,7 +122,7 @@ Server event flow:
 
 If execution stops unexpectedly, resume from the task plan instead of guessing:
 
-1. Open `/Users/steve/dev/personal/ohh-lens/docs/superpowers/plans/2026-06-25-ohh-lens-speech-server.md`.
+1. Open `/Users/steve/dev/personal/ohh-lens/docs/superpowers/plans/2026-06-26-ohh-lens-funasr-runtime.md`.
 2. Find the task marked `[-]`.
 3. Run that task's focused tests before editing anything else.
 4. Inspect `git status --short` to see what was already changed.
@@ -119,8 +131,8 @@ If execution stops unexpectedly, resume from the task plan instead of guessing:
 If the server crashes during local development:
 
 1. Restart the virtual environment with `source .venv/bin/activate`.
-2. Confirm `FUNASR_MODEL_PATH` still points at the expected local model directory.
+2. Confirm `FUNASR_MODEL_NAME` and `FUNASR_DEVICE` still match the runtime you intend to use.
 3. Re-run `uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload`.
 4. Confirm recovery with `curl http://127.0.0.1:8765/health`.
-5. If `backend_ready` is still `false`, verify that `model_path` in `/health` matches the real directory on disk before reinstalling anything.
-6. If install fails on Python `3.11`, switch to Python `3.9` for the real backend environment instead of retrying the same interpreter.
+5. If `backend_ready` is still `false`, verify that `model` and `device` in `/health` match the runtime you expect before reinstalling anything.
+6. If dependency sync fails, rerun `UV_CACHE_DIR="$PWD/.uv-cache-local" uv sync --extra dev` before changing Python versions.

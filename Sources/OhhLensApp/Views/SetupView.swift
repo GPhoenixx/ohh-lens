@@ -31,7 +31,7 @@ struct SetupView: View {
                 )
                 setupRow(
                     title: "Loopback status",
-                    detail: appStore.captureLevel.detectedSound ? "Audio detected from the routed device." : "No active routed audio detected yet."
+                    detail: "Use the Live view to start listening after your Mac output is routed through the selected loopback device."
                 )
             }
             .padding(20)

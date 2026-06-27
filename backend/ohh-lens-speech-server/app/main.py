@@ -18,10 +18,11 @@ def _create_app(
 ) -> FastAPI:
     settings = get_settings()
     active_adapter = adapter or FunASRStreamingAdapter(
-        model_path=settings.funasr_model_path or ""
+        model_name=settings.funasr_model_name,
+        device=settings.funasr_device,
     )
     session_manager = SessionManager(adapter=active_adapter)
-    
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         if adapter is None and adapter_ready:

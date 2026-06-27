@@ -16,9 +16,8 @@ def build_health_router(settings: Settings, adapter: StreamingAdapter) -> APIRou
             "channels": settings.channels,
             "sample_format": settings.sample_format,
             "backend_ready": adapter.ready(),
-            "model": settings.model_name,
-            "model_path": settings.funasr_model_path,
-            "model_path_configured": bool(settings.funasr_model_path),
+            "model": settings.funasr_model_name,
+            "device": settings.funasr_device,
         }
 
     return router
