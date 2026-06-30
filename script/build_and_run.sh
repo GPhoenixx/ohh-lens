@@ -17,6 +17,18 @@ mkdir -p "$HOME" "$CLANG_MODULE_CACHE_PATH"
 
 pkill -x "Ohh Lens" 2>/dev/null || true
 
+for _ in 1 2 3 4 5; do
+  if ! pgrep -x "Ohh Lens" >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+
+if pgrep -x "Ohh Lens" >/dev/null; then
+  echo 'Error: "Ohh Lens" did not stop within 5 seconds.' >&2
+  exit 1
+fi
+
 xcodebuild \
   -project "$PROJECT" \
   -scheme OhhLens \
