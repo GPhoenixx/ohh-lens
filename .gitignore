@@ -2,6 +2,7 @@
 .cache/
 .home/
 .swiftpm/
+.worktrees/
 .codex/
 .superpowers/
 .DS_Store
