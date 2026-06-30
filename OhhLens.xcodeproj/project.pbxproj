@@ -143,6 +143,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				ENABLE_APP_SANDBOX = NO;
+				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Ohh Lens needs microphone access to transcribe live audio.";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
