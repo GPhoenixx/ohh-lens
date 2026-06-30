@@ -1,5 +1,5 @@
 import XCTest
-@testable import OhhLensCore
+@testable import OhhLens
 
 final class AppStoreTests: XCTestCase {
     @MainActor

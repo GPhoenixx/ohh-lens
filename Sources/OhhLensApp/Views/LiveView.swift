@@ -1,5 +1,4 @@
 import SwiftUI
-import OhhLensCore
 
 struct LiveView: View {
     @Environment(AppStore.self) private var appStore

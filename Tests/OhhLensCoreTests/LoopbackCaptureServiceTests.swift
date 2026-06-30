@@ -1,6 +1,6 @@
 import XCTest
 import AVFoundation
-@testable import OhhLensCore
+@testable import OhhLens
 
 final class LoopbackCaptureServiceTests: XCTestCase {
     func test_pcmConversionProducesBackendReady16kMonoInt16ChunkFrom48kStereoFloat() throws {

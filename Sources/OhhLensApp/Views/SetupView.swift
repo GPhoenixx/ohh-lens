@@ -1,5 +1,4 @@
 import SwiftUI
-import OhhLensCore
 
 struct SetupView: View {
     @Environment(AppStore.self) private var appStore
@@ -53,7 +52,6 @@ struct SetupView: View {
                 .font(.headline)
             Text(detail)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

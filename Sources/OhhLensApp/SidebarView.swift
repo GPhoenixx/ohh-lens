@@ -1,5 +1,4 @@
 import SwiftUI
-import OhhLensCore
 
 struct SidebarView: View {
     @Binding var selection: AppSection

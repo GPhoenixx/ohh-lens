@@ -1,5 +1,4 @@
 import SwiftUI
-import OhhLensCore
 
 struct HistoryView: View {
     @Environment(AppStore.self) private var appStore

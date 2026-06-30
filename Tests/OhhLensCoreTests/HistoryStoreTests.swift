@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import OhhLensCore
+@testable import OhhLens
 
 final class HistoryStoreTests: XCTestCase {
     func test_loadReturnsEmptyWhenHistoryFileDoesNotExist() throws {

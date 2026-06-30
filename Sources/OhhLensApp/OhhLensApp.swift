@@ -1,5 +1,4 @@
 import SwiftUI
-import OhhLensCore
 
 @main
 struct OhhLensApp: App {
