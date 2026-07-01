@@ -4,7 +4,7 @@ from app.funasr.adapter import StreamingAdapter
 
 
 class SessionManager:
-    def __init__(self, adapter: StreamingAdapter, chunk_bytes: int = 64000) -> None:
+    def __init__(self, adapter: StreamingAdapter, chunk_bytes: int = 19200) -> None:
         self.adapter = adapter
         self.chunk_bytes = chunk_bytes
         self.buffers: dict[str, PCMChunkBuffer] = {}

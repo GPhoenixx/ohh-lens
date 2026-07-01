@@ -12,11 +12,14 @@ Current note:
 
 - The backend is pinned to Python `3.11`.
 - Use `uv` for environment creation and dependency sync so the local environment matches the lockfile.
+- Model downloads use HuggingFace by default.
+- Qwen ASR support is included in the base backend dependencies through `qwen-asr`.
 
 ## Runtime defaults
 
 - Model: `iic/SenseVoiceSmall`
 - Device: `mps`
+- Hub: `hf`
 
 This is the English-first default runtime for the current backend slice.
 
@@ -24,8 +27,10 @@ Override with environment variables when needed:
 
 - `FUNASR_MODEL_NAME=iic/SenseVoiceSmall`
 - `FUNASR_DEVICE=mps`
+- `FUNASR_HUB=ms` if you want to prefer ModelScope instead
 
 FunASR resolves the configured model through `AutoModel(...)`. If the model is not already present locally, FunASR may download it on first use.
+If `FUNASR_HUB` is unset, the server defaults to `hub="hf"` for both the ASR and VAD model loads.
 
 ## Run locally
 
@@ -36,6 +41,7 @@ source .venv/bin/activate
 UV_CACHE_DIR="$PWD/.uv-cache-local" uv sync --extra dev
 export FUNASR_MODEL_NAME="iic/SenseVoiceSmall"
 export FUNASR_DEVICE="mps"
+export FUNASR_HUB="hf"
 export MODELSCOPE_CACHE="$PWD/.modelscope-cache"
 uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ```
@@ -45,6 +51,7 @@ What this does:
 - creates an isolated virtual environment in `.venv`
 - installs the runtime and dev dependencies from `pyproject.toml` and `uv.lock`
 - configures the default `SenseVoice` + `mps` runtime explicitly
+- keeps model downloads on the default HuggingFace path
 - stores downloaded FunASR model assets in a project-local cache
 - starts the FastAPI server on `127.0.0.1:8765`
 
@@ -53,9 +60,10 @@ Example override:
 ```bash
 export FUNASR_MODEL_NAME="iic/SenseVoiceSmall"
 export FUNASR_DEVICE="cpu"
+export FUNASR_HUB="ms"
 ```
 
-Use `cpu` if you need a fallback on a machine where `mps` is unavailable.
+Use `cpu` if you need a fallback on a machine where `mps` is unavailable. Set `FUNASR_HUB="ms"` if you want ModelScope instead of the default HuggingFace source.
 
 ## Check health
 

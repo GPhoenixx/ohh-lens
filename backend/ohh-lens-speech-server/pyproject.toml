@@ -15,6 +15,7 @@ dependencies = [
   "torch>=2.12,<2.13",
   "torchaudio>=2.11,<2.12",
   "funasr",
+  "qwen-asr",
   "pynndescent>=0.6,<0.7",
 ]
 

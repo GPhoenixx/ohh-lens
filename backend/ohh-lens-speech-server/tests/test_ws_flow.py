@@ -65,6 +65,28 @@ def test_session_manager_buffers_short_audio_before_emitting_subtitle_events():
     assert first_events == []
 
     second_events = session_manager.push_audio("session-buffering", b"\x00\x01" * 28000)
+    assert len(second_events) == 3
+    assert [event["type"] for event in second_events] == ["partial", "partial", "partial"]
+    assert [event["text"] for event in second_events] == ["partial text", "partial text", "partial text"]
+
+
+def test_session_manager_uses_600ms_streaming_chunks():
+    session_manager = SessionManager(adapter=FakeStreamingAdapter())
+    start = StartMessage(
+        type="start",
+        session_id="session-600ms",
+        sample_rate=16000,
+        channels=1,
+        sample_format="pcm_s16le",
+        language="en",
+    )
+
+    session_manager.start_session("session-600ms", start)
+
+    first_events = session_manager.push_audio("session-600ms", b"\x00\x01" * 9599)
+    assert first_events == []
+
+    second_events = session_manager.push_audio("session-600ms", b"\x00\x01")
     assert len(second_events) == 1
     assert second_events[0]["type"] == "partial"
     assert second_events[0]["text"] == "partial text"
@@ -88,9 +110,17 @@ def test_ws_transcribe_emits_ready_partial_final_closed():
         assert ready["type"] == "ready"
 
         websocket.send_bytes(b"\x00\x01" * 32000)
-        partial = websocket.receive_json()
-        assert partial["type"] == "partial"
-        assert partial["text"] == "partial text"
+        partial_events = [websocket.receive_json() for _ in range(3)]
+        assert [event["type"] for event in partial_events] == [
+            "partial",
+            "partial",
+            "partial",
+        ]
+        assert [event["text"] for event in partial_events] == [
+            "partial text",
+            "partial text",
+            "partial text",
+        ]
 
         websocket.send_json({"type": "stop"})
         final_event = websocket.receive_json()
