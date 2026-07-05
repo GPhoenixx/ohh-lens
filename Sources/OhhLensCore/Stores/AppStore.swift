@@ -4,7 +4,15 @@ import Observation
 @MainActor
 @Observable
 public final class AppStore {
-    public var selectedSection: AppSection = .live
+    private static let appearanceModeDefaultsKey = "selectedAppearanceMode"
+
+    public var selectedSection: AppSection = .liveSubtitles
+    public var selectedAccentTheme: AccentTheme = .red
+    public var selectedAppearanceMode: AppearanceMode = .system {
+        didSet {
+            UserDefaults.standard.set(selectedAppearanceMode.rawValue, forKey: Self.appearanceModeDefaultsKey)
+        }
+    }
     public var selectedSource: AudioSource = .microphone
     public var captionMode: CaptionMode = .dualLine
     public var languagePair = LanguagePair(source: "en", target: "en")
@@ -16,13 +24,18 @@ public final class AppStore {
     public var statusText = "Idle"
     public var backendStatusText = "Backend idle"
     public var setupMessage = "Checking setup..."
+    public var fileTranscription = FileTranscriptionViewState()
+    public var historyViewer = HistoryViewerState()
+    public var pipState = PiPViewState()
     public var history: [SessionRecord] = [] {
         didSet {
             persistHistory()
+            synchronizeHistoryViewerSelection()
         }
     }
 
     private let historyStore: HistoryStore?
+    private let fileTranscriptionService = FileTranscriptionService()
     private let audioChunkPipeline = AudioChunkPipeline()
     private let deviceCatalog: AudioDeviceCatalog
     private let loopbackCaptureServiceFactory: (AudioSource, String?) -> LoopbackCaptureService
@@ -41,6 +54,7 @@ public final class AppStore {
         }
         self.streamingClientFactory = { FunASRStreamingClient() }
         self.setupMessage = AppStore.defaultSetupMessage()
+        self.selectedAppearanceMode = AppStore.loadAppearanceMode()
 
         if let historyStore {
             self.history = (try? historyStore.load()) ?? []
@@ -48,6 +62,7 @@ public final class AppStore {
             self.history = []
         }
 
+        synchronizeHistoryViewerSelection()
         refreshLoopbackDevices()
     }
 
@@ -64,6 +79,7 @@ public final class AppStore {
         self.loopbackCaptureServiceFactory = loopbackCaptureServiceFactory
         self.streamingClientFactory = streamingClientFactory
         self.setupMessage = AppStore.defaultSetupMessage()
+        self.selectedAppearanceMode = AppStore.loadAppearanceMode()
 
         if let historyStore {
             self.history = (try? historyStore.load()) ?? []
@@ -71,76 +87,78 @@ public final class AppStore {
             self.history = []
         }
 
+        synchronizeHistoryViewerSelection()
         refreshLoopbackDevices()
     }
 
     public func startListening() {
-        if selectedSource == .systemAudio || selectedSource == .appAudio {
-            guard let selectedLoopbackDeviceID else {
+        let requiresLoopbackDevice = selectedSource == .systemAudio || selectedSource == .appAudio
+
+        if requiresLoopbackDevice {
+            guard selectedLoopbackDeviceID != nil else {
                 statusText = "No loopback device"
                 isListening = false
                 return
             }
-
-            let service = loopbackCaptureServiceFactory(selectedSource, selectedLoopbackDeviceID)
-            let client = streamingClientFactory()
-            service.onLevelUpdate = { [weak self] level in
-                Task { @MainActor in
-                    self?.updateCaptureLevel(level)
-                }
-            }
-            service.onPCMChunk = { [weak self] chunk in
-                Task {
-                    guard let self else {
-                        return
-                    }
-
-                    await self.streamingChunkSender.enqueue(chunk, using: client)
-                }
-            }
-
-            do {
-                try service.start()
-                loopbackCaptureService = service
-                streamingClient = client
-                currentSession = audioChunkPipeline.beginSession(source: selectedSource, languages: languagePair)
-                liveTranscriptState = LiveTranscriptState(phase: .connecting)
-                isListening = true
-                statusText = "Listening for audio"
-                backendStatusText = "Connecting to local FunASR backend"
-                let language = languagePair.source
-
-                streamingTask = Task.detached(priority: .userInitiated) { [weak self] in
-                    guard let self else {
-                        return
-                    }
-
-                    do {
-                        try await client.startSession(language: language)
-                        await self.consumeStreamingEvents(from: client)
-                    } catch is CancellationError {
-                        return
-                    } catch {
-                        await self.handleStreamingFailure(error)
-                    }
-                }
-            } catch {
-                Task {
-                    await client.stopSession()
-                }
-                streamingClient = nil
-                currentSession = nil
-                liveTranscriptState = LiveTranscriptState()
-                loopbackCaptureService = nil
-                isListening = false
-                statusText = "Loopback unavailable"
-                updateSetupMessage(error.localizedDescription)
-            }
-            return
         }
 
-        isListening = true
-        statusText = "Listening"
+        let service = loopbackCaptureServiceFactory(
+            selectedSource,
+            requiresLoopbackDevice ? selectedLoopbackDeviceID : nil
+        )
+        let client = streamingClientFactory()
+        service.onLevelUpdate = { [weak self] level in
+            Task { @MainActor in
+                self?.updateCaptureLevel(level)
+            }
+        }
+        service.onPCMChunk = { [weak self] chunk in
+            Task {
+                guard let self else {
+                    return
+                }
+
+                await self.streamingChunkSender.enqueue(chunk, using: client)
+            }
+        }
+
+        do {
+            try service.start()
+            loopbackCaptureService = service
+            streamingClient = client
+            currentSession = audioChunkPipeline.beginSession(source: selectedSource, languages: languagePair)
+            liveTranscriptState = LiveTranscriptState(phase: .connecting)
+            isListening = true
+            statusText = "Listening for audio"
+            backendStatusText = "Connecting to local FunASR backend"
+            let language = languagePair.source
+
+            streamingTask = Task.detached(priority: .userInitiated) { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                do {
+                    try await client.startSession(language: language)
+                    await self.consumeStreamingEvents(from: client)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    await self.handleStreamingFailure(error)
+                }
+            }
+        } catch {
+            Task {
+                await client.stopSession()
+            }
+            streamingClient = nil
+            currentSession = nil
+            liveTranscriptState = LiveTranscriptState()
+            loopbackCaptureService = nil
+            isListening = false
+            statusText = requiresLoopbackDevice ? "Loopback unavailable" : "Microphone unavailable"
+            updateSetupMessage(error.localizedDescription)
+        }
     }
 
     public func stopListening() {
@@ -200,6 +218,79 @@ public final class AppStore {
         captureLevel = level
     }
 
+    public func selectHistorySession(_ id: SessionRecord.ID?) {
+        historyViewer.selectedSessionID = id
+    }
+
+    public func updateHistorySearch(_ text: String) {
+        historyViewer.searchText = text
+    }
+
+    public func togglePiP() {
+        pipState.isVisible.toggle()
+    }
+
+    public func beginFileTranscription(for fileURL: URL) {
+        selectedSection = .fileTranscriber
+        fileTranscription = FileTranscriptionViewState(
+            phase: .processing,
+            selectedFileURL: fileURL,
+            progress: 0,
+            currentStep: "Extracting audio channel",
+            completedLines: []
+        )
+    }
+
+    public func updateFileTranscriptionProgress(step: String, progress: Double) {
+        fileTranscription.phase = .processing
+        fileTranscription.progress = min(max(progress, 0), 1)
+        fileTranscription.currentStep = step
+    }
+
+    public func completeFileTranscription(lines: [String]) {
+        selectedSection = .fileTranscriber
+        fileTranscription.phase = .completed
+        fileTranscription.progress = 1
+        fileTranscription.currentStep = nil
+        fileTranscription.completedLines = lines
+    }
+
+    public func resetFileTranscription() {
+        fileTranscription = FileTranscriptionViewState()
+    }
+
+    public func fileTranscriptionPreviewSteps() -> [FileTranscriptionProgress] {
+        guard let selectedFileURL = fileTranscription.selectedFileURL else {
+            return []
+        }
+
+        let request = fileTranscriptionService.makeRequest(fileURL: selectedFileURL, languages: languagePair)
+        return fileTranscriptionService.demoProgressSequence(for: request)
+    }
+
+    private static func loadAppearanceMode() -> AppearanceMode {
+        guard
+            let rawValue = UserDefaults.standard.string(forKey: appearanceModeDefaultsKey),
+            let mode = AppearanceMode(rawValue: rawValue)
+        else {
+            return .system
+        }
+
+        return mode
+    }
+
+    public func loadDemoFileTranscript(for fileURL: URL) {
+        beginFileTranscription(for: fileURL)
+
+        let request = fileTranscriptionService.makeRequest(fileURL: fileURL, languages: languagePair)
+
+        for progress in fileTranscriptionService.demoProgressSequence(for: request) {
+            updateFileTranscriptionProgress(step: progress.currentStep, progress: progress.fractionCompleted)
+        }
+
+        completeFileTranscription(lines: fileTranscriptionService.demoTranscriptLines(for: request))
+    }
+
     public func appendHistorySession(_ session: SessionRecord) {
         history.insert(session, at: 0)
     }
@@ -226,6 +317,23 @@ public final class AppStore {
         ]
     }
 
+    public var conversationRows: [ConversationRow] {
+        let lines = liveTranscriptState.finalizedCaptionLines
+        let timingSegments = alignedConversationSegments(for: lines.count)
+
+        return lines.enumerated().map { index, line in
+            let parsedLine = parseConversationLine(line, index: index)
+
+            return ConversationRow(
+                id: "conversation-\(index)-\(parsedLine.speaker)-\(parsedLine.text)",
+                speaker: parsedLine.speaker,
+                text: parsedLine.text,
+                timestampLabel: conversationTimestampLabel(for: timingSegments[index]),
+                isPrimarySpeaker: parsedLine.isPrimarySpeaker
+            )
+        }
+    }
+
     private func persistHistory() {
         do {
             try historyStore?.save(history)
@@ -233,6 +341,97 @@ public final class AppStore {
             // Persistence failures should not break the UI state path.
         }
     }
+
+    private func synchronizeHistoryViewerSelection() {
+        guard history.isEmpty == false else {
+            historyViewer.selectedSessionID = nil
+            return
+        }
+
+        if let selectedSessionID = historyViewer.selectedSessionID,
+           history.contains(where: { $0.id == selectedSessionID }) {
+            return
+        }
+
+        historyViewer.selectedSessionID = history.first?.id
+    }
+
+    private func alignedConversationSegments(for count: Int) -> [TranscriptSegment?] {
+        guard count > 0 else {
+            return []
+        }
+
+        guard let currentSession else {
+            return Array(repeating: nil, count: count)
+        }
+
+        let segments = Array(currentSession.segments.suffix(count))
+
+        guard segments.count == count else {
+            return Array(repeating: nil, count: count)
+        }
+
+        return segments.map(Optional.some)
+    }
+
+    private func conversationTimestampLabel(for segment: TranscriptSegment?) -> String? {
+        guard let segment else {
+            return nil
+        }
+
+        return Self.conversationTimestampFormatter.string(
+            from: Date(timeIntervalSince1970: segment.startedAt)
+        )
+    }
+
+    private func parseConversationLine(
+        _ line: String,
+        index: Int
+    ) -> (speaker: String, text: String, isPrimarySpeaker: Bool) {
+        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackSpeaker = index.isMultiple(of: 2) ? "Speaker A" : "Speaker B"
+        let fallbackSpeakerIsPrimary = index.isMultiple(of: 2)
+
+        guard
+            let separatorIndex = trimmedLine.firstIndex(of: ":"),
+            separatorIndex > trimmedLine.startIndex
+        else {
+            return (
+                speaker: fallbackSpeaker,
+                text: trimmedLine,
+                isPrimarySpeaker: fallbackSpeakerIsPrimary
+            )
+        }
+
+        let speaker = trimmedLine[..<separatorIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+        let textStart = trimmedLine.index(after: separatorIndex)
+        let text = trimmedLine[textStart...].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard speaker.isEmpty == false, text.isEmpty == false else {
+            return (
+                speaker: fallbackSpeaker,
+                text: trimmedLine,
+                isPrimarySpeaker: fallbackSpeakerIsPrimary
+            )
+        }
+
+        let isPrimarySpeaker = speaker.localizedCaseInsensitiveContains("speaker a")
+            || speaker.localizedCaseInsensitiveContains("host")
+            || speaker.localizedCaseInsensitiveContains("interviewer")
+
+        return (
+            speaker: speaker,
+            text: text,
+            isPrimarySpeaker: isPrimarySpeaker || (fallbackSpeakerIsPrimary && speaker == fallbackSpeaker)
+        )
+    }
+
+    private static let conversationTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
 
     func consumeStreamingEvents(from client: any FunASRStreamingServicing) async {
         while Task.isCancelled == false {

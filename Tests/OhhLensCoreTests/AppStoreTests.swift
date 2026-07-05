@@ -3,6 +3,13 @@ import XCTest
 
 final class AppStoreTests: XCTestCase {
     @MainActor
+    func test_selectedAccentTheme_defaultsToRed() {
+        let store = AppStore()
+
+        XCTAssertEqual(store.selectedAccentTheme, .red)
+    }
+
+    @MainActor
     func test_loopbackPCMChunksBufferUntilBackendReady() async {
         let captureService = LoopbackCaptureService.testDouble(source: .systemAudio)
         let streamingClient = StubStreamingClient(
@@ -47,6 +54,50 @@ final class AppStoreTests: XCTestCase {
 
         let flushedChunks = await streamingClient.sentChunks()
         XCTAssertEqual(flushedChunks, [Data([0x10, 0x20, 0x30, 0x40])])
+
+        store.stopListening()
+    }
+
+    @MainActor
+    func test_microphonePCMChunksStreamToBackendWhenListeningStarts() async {
+        let captureService = LoopbackCaptureService.testDouble(source: .microphone)
+        let streamingClient = StubStreamingClient(
+            events: [.ready],
+            startMode: .blocked
+        )
+
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            loopbackCaptureServiceFactory: { _, _ in captureService },
+            streamingClientFactory: { streamingClient }
+        )
+
+        store.selectedSource = .microphone
+        store.startListening()
+        captureService.receiveTestPCMChunk(Data([0x01, 0x02, 0x03, 0x04]))
+
+        for _ in 0..<10 {
+            if await streamingClient.sentChunks().isEmpty == false {
+                break
+            }
+            await Task.yield()
+        }
+
+        let bufferedBeforeReady = await streamingClient.sentChunks()
+        XCTAssertEqual(bufferedBeforeReady, [])
+
+        await streamingClient.resumeStartSession()
+
+        for _ in 0..<20 {
+            if await streamingClient.sentChunks() == [Data([0x01, 0x02, 0x03, 0x04])] {
+                break
+            }
+            await Task.yield()
+        }
+
+        let flushedChunks = await streamingClient.sentChunks()
+        XCTAssertEqual(flushedChunks, [Data([0x01, 0x02, 0x03, 0x04])])
 
         store.stopListening()
     }
@@ -206,10 +257,260 @@ final class AppStoreTests: XCTestCase {
     }
 
     @MainActor
-    func test_defaultStateStartsOnLiveSectionWithDualLineCaptions() {
-        let store = AppStore()
+    func test_liveCaptionAutoScrollTriggerFollowsUpdatesToLatestCaption() {
+        XCTAssertFalse(
+            LiveCaptionAutoScrollTrigger.shouldScroll(
+                from: [],
+                to: []
+            )
+        )
+        XCTAssertTrue(
+            LiveCaptionAutoScrollTrigger.shouldScroll(
+                from: ["The first line"],
+                to: ["The first line", "The second line"]
+            )
+        )
+        XCTAssertTrue(
+            LiveCaptionAutoScrollTrigger.shouldScroll(
+                from: ["The first line", "A partial thought"],
+                to: ["The first line", "A partial thought that grew longer"]
+            )
+        )
+        XCTAssertFalse(
+            LiveCaptionAutoScrollTrigger.shouldScroll(
+                from: ["The first line", "The second line"],
+                to: ["The first line", "The second line"]
+            )
+        )
+    }
 
-        XCTAssertEqual(store.selectedSection, .live)
+    @MainActor
+    func test_defaultStateStartsOnLiveSubtitlesTab() {
+        let store = makePureStateStore()
+
+        XCTAssertEqual(store.selectedSection, .liveSubtitles)
+        XCTAssertEqual(AppSection.allCases, [
+            .liveSubtitles,
+            .conversations,
+            .fileTranscriber,
+            .savedTranscripts,
+            .appSettings,
+        ])
+        XCTAssertEqual(AppSection.allCases.map(\.rawValue), [
+            "liveSubtitles",
+            "conversations",
+            "fileTranscriber",
+            "savedTranscripts",
+            "appSettings",
+        ])
+        XCTAssertEqual(AppSection.allCases.map(\.title), [
+            "Live Subtitles",
+            "Conversations",
+            "File Transcriber",
+            "Saved Transcripts",
+            "App Settings",
+        ])
+    }
+
+    @MainActor
+    func test_fileTranscriptionStateStartsIdle() {
+        let store = makePureStateStore()
+
+        XCTAssertEqual(store.fileTranscription.phase, .idle)
+        XCTAssertNil(store.fileTranscription.selectedFileURL)
+        XCTAssertEqual(store.fileTranscription.progress, 0)
+        XCTAssertNil(store.fileTranscription.currentStep)
+        XCTAssertEqual(store.fileTranscription.completedLines, [])
+    }
+
+    @MainActor
+    func test_historyViewerStartsWithFirstHistoryItemSelectedWhenPreviewLoaded() {
+        let store = makePureStateStore()
+
+        store.applyPreviewTranscript()
+
+        XCTAssertEqual(store.historyViewer.selectedSessionID, store.history.first?.id)
+        XCTAssertEqual(store.historyViewer.searchText, "")
+    }
+
+    @MainActor
+    func test_historyViewerStartsWithFirstPersistedHistoryItemSelected() throws {
+        let historyStore = HistoryStore(
+            baseDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        )
+        let first = SessionRecord(source: .microphone, languages: LanguagePair(source: "en", target: "en"))
+        let second = SessionRecord(source: .systemAudio, languages: LanguagePair(source: "en", target: "en"))
+        try historyStore.save([first, second])
+
+        let store = AppStore(historyStore: historyStore, deviceCatalog: .init())
+
+        XCTAssertEqual(store.history.map(\.id), [first.id, second.id])
+        XCTAssertEqual(store.historyViewer.selectedSessionID, first.id)
+    }
+
+    @MainActor
+    func test_historyViewerSelectionStaysSynchronizedWithHistoryChanges() {
+        let store = makePureStateStore()
+        let first = SessionRecord(source: .microphone, languages: store.languagePair)
+        let second = SessionRecord(source: .systemAudio, languages: store.languagePair)
+
+        store.history = [first, second]
+        store.selectHistorySession(second.id)
+        XCTAssertEqual(store.historyViewer.selectedSessionID, second.id)
+
+        store.history = [first]
+
+        XCTAssertEqual(store.historyViewer.selectedSessionID, first.id)
+    }
+
+    @MainActor
+    func test_historyViewerSearchCanBeUpdated() {
+        let store = makePureStateStore()
+
+        store.updateHistorySearch("retro meeting")
+
+        XCTAssertEqual(store.historyViewer.searchText, "retro meeting")
+    }
+
+    @MainActor
+    func test_liveTranscriptStateExposesConversationRowsFromFinalizedLines() {
+        let store = makePureStateStore()
+
+        store.handleStreamingEvent(.final("Speaker A: Hello there"))
+        store.handleStreamingEvent(.final("Speaker B: Hi back"))
+
+        XCTAssertEqual(store.conversationRows.count, 2)
+        XCTAssertEqual(store.conversationRows[0].speaker, "Speaker A")
+        XCTAssertEqual(store.conversationRows[0].text, "Hello there")
+        XCTAssertNil(store.conversationRows[0].timestampLabel)
+        XCTAssertEqual(store.conversationRows[1].speaker, "Speaker B")
+        XCTAssertEqual(store.conversationRows[1].text, "Hi back")
+        XCTAssertNil(store.conversationRows[1].timestampLabel)
+    }
+
+    @MainActor
+    func test_conversationRowsFallbackForMalformedSpeakerPrefixWithoutInventingTimestamp() {
+        let store = makePureStateStore()
+
+        store.handleStreamingEvent(.final("Speaker A:"))
+
+        XCTAssertEqual(store.conversationRows.count, 1)
+        XCTAssertEqual(store.conversationRows[0].speaker, "Speaker A")
+        XCTAssertEqual(store.conversationRows[0].text, "Speaker A:")
+        XCTAssertNil(store.conversationRows[0].timestampLabel)
+    }
+
+    @MainActor
+    func test_conversationRowsUseRealSegmentStartTimeWhenAvailable() {
+        let captureService = LoopbackCaptureService.testDouble(source: .systemAudio)
+        let streamingClient = StubStreamingClient(
+            events: [.ready],
+            startMode: .blocked
+        )
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(
+                devices: [
+                    .init(id: "blackhole", name: "BlackHole 2ch", isInput: true)
+                ]
+            ),
+            loopbackCaptureServiceFactory: { _, _ in captureService },
+            streamingClientFactory: { streamingClient }
+        )
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+
+        store.selectedSource = .systemAudio
+        store.selectedLoopbackDeviceID = "blackhole"
+        store.startListening()
+
+        let beforeLabel = formatter.string(from: Date())
+        store.handleStreamingEvent(.final("Speaker A: Hello there"))
+        let afterLabel = formatter.string(from: Date())
+
+        XCTAssertEqual(store.conversationRows.count, 1)
+        XCTAssertEqual(store.conversationRows[0].speaker, "Speaker A")
+        XCTAssertEqual(store.conversationRows[0].text, "Hello there")
+        guard let timestampLabel = store.conversationRows[0].timestampLabel else {
+            return XCTFail("Expected a real timestamp label for a live session segment.")
+        }
+        XCTAssertTrue([beforeLabel, afterLabel].contains(timestampLabel))
+
+        store.stopListening()
+    }
+
+    @MainActor
+    func test_pipStateCanToggleVisibility() {
+        let store = makePureStateStore()
+
+        XCTAssertFalse(store.pipState.isVisible)
+
+        store.togglePiP()
+        XCTAssertTrue(store.pipState.isVisible)
+
+        store.togglePiP()
+        XCTAssertFalse(store.pipState.isVisible)
+    }
+
+    @MainActor
+    func test_beginAndCompleteFileTranscriptionAdvanceWorkflowState() {
+        let store = makePureStateStore()
+        let fileURL = URL(fileURLWithPath: "/tmp/demo.wav")
+
+        store.beginFileTranscription(for: fileURL)
+
+        XCTAssertEqual(store.selectedSection, .fileTranscriber)
+        XCTAssertEqual(store.fileTranscription.phase, .processing)
+        XCTAssertEqual(store.fileTranscription.selectedFileURL, fileURL)
+        XCTAssertEqual(store.fileTranscription.progress, 0)
+        XCTAssertEqual(store.fileTranscription.currentStep, "Extracting audio channel")
+
+        store.completeFileTranscription(lines: ["First line", "Second line"])
+
+        XCTAssertEqual(store.fileTranscription.phase, .completed)
+        XCTAssertEqual(store.fileTranscription.progress, 1)
+        XCTAssertEqual(store.fileTranscription.completedLines, ["First line", "Second line"])
+    }
+
+    @MainActor
+    func test_updateFileTranscriptionProgressTracksCurrentStepWithoutClearingSelection() {
+        let store = makePureStateStore()
+        let fileURL = URL(fileURLWithPath: "/tmp/interview.mov")
+
+        store.beginFileTranscription(for: fileURL)
+        store.updateFileTranscriptionProgress(step: "Running speech recognition", progress: 0.64)
+
+        XCTAssertEqual(store.fileTranscription.phase, .processing)
+        XCTAssertEqual(store.fileTranscription.selectedFileURL, fileURL)
+        XCTAssertEqual(store.fileTranscription.currentStep, "Running speech recognition")
+        XCTAssertEqual(store.fileTranscription.progress, 0.64, accuracy: 0.000_1)
+        XCTAssertEqual(store.fileTranscription.completedLines, [])
+    }
+
+    @MainActor
+    func test_resetFileTranscriptionReturnsWorkflowToIdleState() {
+        let store = makePureStateStore()
+        let fileURL = URL(fileURLWithPath: "/tmp/interview.mov")
+
+        store.beginFileTranscription(for: fileURL)
+        store.updateFileTranscriptionProgress(step: "Translating transcript", progress: 0.92)
+        store.completeFileTranscription(lines: ["Welcome back everyone."])
+
+        store.resetFileTranscription()
+
+        XCTAssertEqual(store.fileTranscription.phase, .idle)
+        XCTAssertNil(store.fileTranscription.selectedFileURL)
+        XCTAssertEqual(store.fileTranscription.progress, 0)
+        XCTAssertNil(store.fileTranscription.currentStep)
+        XCTAssertEqual(store.fileTranscription.completedLines, [])
+    }
+
+    @MainActor
+    func test_defaultStateStartsOnLiveSectionWithDualLineCaptions() {
+        let store = makePureStateStore()
+
+        XCTAssertEqual(store.selectedSection, .liveSubtitles)
         XCTAssertEqual(store.captionMode, .dualLine)
         XCTAssertEqual(store.selectedSource, .microphone)
         XCTAssertEqual(store.languagePair.source, "en")
@@ -218,12 +519,20 @@ final class AppStoreTests: XCTestCase {
 
     @MainActor
     func test_startListeningMarksSessionActive() {
-        let store = AppStore()
+        let captureService = LoopbackCaptureService.testDouble(source: .microphone)
+        let streamingClient = StubStreamingClient(events: [.ready], startMode: .blocked)
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            loopbackCaptureServiceFactory: { _, _ in captureService },
+            streamingClientFactory: { streamingClient }
+        )
 
+        store.selectedSource = .microphone
         store.startListening()
 
         XCTAssertTrue(store.isListening)
-        XCTAssertEqual(store.statusText, "Listening")
+        XCTAssertEqual(store.statusText, "Listening for audio")
     }
 
     @MainActor
@@ -318,4 +627,9 @@ private actor StubStreamingClient: FunASRStreamingServicing {
         startContinuation?.resume()
         startContinuation = nil
     }
+}
+
+@MainActor
+private func makePureStateStore() -> AppStore {
+    AppStore(historyStore: nil, deviceCatalog: .init())
 }

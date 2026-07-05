@@ -22,23 +22,47 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		100000000000000000000040 /* OhhLensApp */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Sources/OhhLensApp; sourceTree = "<group>"; };
-		100000000000000000000041 /* OhhLensCore */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Sources/OhhLensCore; sourceTree = "<group>"; };
-		100000000000000000000042 /* OhhLensCoreTests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Tests/OhhLensCoreTests; sourceTree = "<group>"; };
+		100000000000000000000040 /* Sources/OhhLensApp */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Sources/OhhLensApp;
+			sourceTree = "<group>";
+		};
+		100000000000000000000041 /* Sources/OhhLensCore */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Sources/OhhLensCore;
+			sourceTree = "<group>";
+		};
+		100000000000000000000042 /* Tests/OhhLensCoreTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tests/OhhLensCoreTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		100000000000000000000050 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-		100000000000000000000051 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		100000000000000000000050 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		100000000000000000000051 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		100000000000000000000060 = {
 			isa = PBXGroup;
 			children = (
-				100000000000000000000040 /* OhhLensApp */,
-				100000000000000000000041 /* OhhLensCore */,
-				100000000000000000000042 /* OhhLensCoreTests */,
+				100000000000000000000040 /* Sources/OhhLensApp */,
+				100000000000000000000041 /* Sources/OhhLensCore */,
+				100000000000000000000042 /* Tests/OhhLensCoreTests */,
 				100000000000000000000061 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -63,11 +87,13 @@
 				100000000000000000000050 /* Frameworks */,
 				100000000000000000000090 /* Resources */,
 			);
-			buildRules = ();
-			dependencies = ();
+			buildRules = (
+			);
+			dependencies = (
+			);
 			fileSystemSynchronizedGroups = (
-				100000000000000000000040 /* OhhLensApp */,
-				100000000000000000000041 /* OhhLensCore */,
+				100000000000000000000040 /* Sources/OhhLensApp */,
+				100000000000000000000041 /* Sources/OhhLensCore */,
 			);
 			name = OhhLens;
 			productName = OhhLens;
@@ -82,12 +108,13 @@
 				100000000000000000000051 /* Frameworks */,
 				100000000000000000000091 /* Resources */,
 			);
-			buildRules = ();
+			buildRules = (
+			);
 			dependencies = (
 				1000000000000000000000A0 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				100000000000000000000042 /* OhhLensCoreTests */,
+				100000000000000000000042 /* Tests/OhhLensCoreTests */,
 			);
 			name = OhhLensTests;
 			productName = OhhLensTests;
@@ -104,15 +131,24 @@
 				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
-					100000000000000000000020 = {CreatedOnToolsVersion = 26.6; };
-					100000000000000000000021 = {CreatedOnToolsVersion = 26.6; TestTargetID = 100000000000000000000020; };
+					100000000000000000000020 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					100000000000000000000021 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 100000000000000000000020;
+					};
 				};
 			};
 			buildConfigurationList = 100000000000000000000072 /* Build configuration list for PBXProject "OhhLens" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
-			knownRegions = (en, Base);
+			knownRegions = (
+				en,
+				Base,
+			);
 			mainGroup = 100000000000000000000060;
+			preferredProjectObjectVersion = 77;
 			productRefGroup = 100000000000000000000061 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -124,17 +160,45 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		100000000000000000000090 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-		100000000000000000000091 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		100000000000000000000090 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		100000000000000000000091 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		100000000000000000000080 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-		100000000000000000000081 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		100000000000000000000080 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		100000000000000000000081 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		1000000000000000000000A0 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = 100000000000000000000020 /* OhhLens */; targetProxy = 100000000000000000000001 /* PBXContainerItemProxy */; };
+		1000000000000000000000A0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 100000000000000000000020 /* OhhLens */;
+			targetProxy = 100000000000000000000001 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -150,6 +214,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.ohhlens.app;
 				PRODUCT_MODULE_NAME = OhhLens;
 				PRODUCT_NAME = "Ohh Lens";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
@@ -178,6 +243,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ohhlens.app.tests;
 				PRODUCT_NAME = OhhLensTests;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ohh Lens.app/Contents/MacOS/Ohh Lens";
 			};
@@ -197,14 +263,53 @@
 			};
 			name = Release;
 		};
-		1000000000000000000000B4 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; MACOSX_DEPLOYMENT_TARGET = 14.0; }; name = Debug; };
-		1000000000000000000000B5 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; MACOSX_DEPLOYMENT_TARGET = 14.0; }; name = Release; };
+		1000000000000000000000B4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		1000000000000000000000B5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		100000000000000000000070 /* Build configuration list for PBXNativeTarget "OhhLens" */ = {isa = XCConfigurationList; buildConfigurations = (1000000000000000000000B0 /* Debug */, 1000000000000000000000B1 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-		100000000000000000000071 /* Build configuration list for PBXNativeTarget "OhhLensTests" */ = {isa = XCConfigurationList; buildConfigurations = (1000000000000000000000B2 /* Debug */, 1000000000000000000000B3 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-		100000000000000000000072 /* Build configuration list for PBXProject "OhhLens" */ = {isa = XCConfigurationList; buildConfigurations = (1000000000000000000000B4 /* Debug */, 1000000000000000000000B5 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		100000000000000000000070 /* Build configuration list for PBXNativeTarget "OhhLens" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1000000000000000000000B0 /* Debug */,
+				1000000000000000000000B1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		100000000000000000000071 /* Build configuration list for PBXNativeTarget "OhhLensTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1000000000000000000000B2 /* Debug */,
+				1000000000000000000000B3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		100000000000000000000072 /* Build configuration list for PBXProject "OhhLens" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1000000000000000000000B4 /* Debug */,
+				1000000000000000000000B5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 /* End XCConfigurationList section */
 	};
 	rootObject = 100000000000000000000010 /* Project object */;

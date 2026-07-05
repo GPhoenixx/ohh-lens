@@ -10,12 +10,14 @@ struct OhhLensApp: App {
             ContentView()
                 .environment(appStore)
                 .frame(minWidth: 980, minHeight: 640)
+                .preferredColorScheme(appStore.selectedAppearanceMode.preferredColorScheme)
         }
 
         Settings {
             SetupView()
                 .environment(appStore)
                 .frame(width: 680, height: 520)
+                .preferredColorScheme(appStore.selectedAppearanceMode.preferredColorScheme)
         }
     }
 }

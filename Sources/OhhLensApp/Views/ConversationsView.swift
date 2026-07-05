@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct LiveView: View {
+struct ConversationsView: View {
     @Environment(AppStore.self) private var appStore
 
     var body: some View {
@@ -9,7 +9,7 @@ struct LiveView: View {
 
         VStack(alignment: .leading, spacing: 20) {
             TranscriptScreenHeader(
-                title: "Live Subtitles",
+                title: "Conversations",
                 selectedSource: appStore.selectedSource,
                 isListening: appStore.isListening,
                 isPiPVisible: appStore.pipState.isVisible,
@@ -19,10 +19,9 @@ struct LiveView: View {
             )
 
             TranscriptPanel {
-                LiveCaptionViewport(
-                    visibleCaptionLines: appStore.liveTranscriptState.visibleCaptionLines,
-                    isListening: appStore.isListening,
-                    lastError: appStore.liveTranscriptState.lastError
+                ConversationViewport(
+                    rows: appStore.conversationRows,
+                    partialText: appStore.liveTranscriptState.partialText
                 )
             } footer: {
                 TranscriptFooterControls(
