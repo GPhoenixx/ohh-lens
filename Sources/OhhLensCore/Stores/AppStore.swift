@@ -38,16 +38,7 @@ public final class AppStore {
             return activeCaptureMode
         }
 
-        switch selectedSource {
-        case .microphone:
-            return .microphone
-        case .systemAudio:
-            return selectedLoopbackDeviceID == nil ? .systemAudioFallbackMicrophone : .routedSystemAudio
-        case .appAudio:
-            return selectedLoopbackDeviceID == nil ? .appAudioRequiresLoopback : .appAudio
-        case .importedFile:
-            return .microphone
-        }
+        return captureResolution.mode
     }
 
     private let historyStore: HistoryStore?
@@ -62,6 +53,12 @@ public final class AppStore {
     private var streamingClient: (any FunASRStreamingServicing)?
     private var activeCaptureMode: EffectiveCaptureMode?
     private var currentSession: SessionRecord?
+    private var captureResolution: CaptureResolution {
+        CaptureResolution.resolve(
+            selectedSource: selectedSource,
+            selectedLoopbackDeviceID: selectedLoopbackDeviceID
+        )
+    }
 
     public init() {
         self.historyStore = AppStore.makeDefaultHistoryStore()
@@ -117,7 +114,18 @@ public final class AppStore {
     }
 
     public func startListening() {
-        guard let request = resolveCaptureRequest() else {
+        let resolution = captureResolution
+
+        guard let request = resolution.request else {
+            if let blockedState = resolution.blockedState {
+                statusText = blockedState.statusText
+
+                if let setupMessage = blockedState.setupMessage {
+                    updateSetupMessage(setupMessage)
+                }
+            }
+
+            isListening = false
             return
         }
 
@@ -141,14 +149,14 @@ public final class AppStore {
 
         do {
             try service.start()
-            activeCaptureMode = request.mode
+            activeCaptureMode = resolution.mode
             audioCaptureService = service
             streamingClient = client
             currentSession = audioChunkPipeline.beginSession(source: selectedSource, languages: languagePair)
-            currentSession?.effectiveCaptureMode = request.mode
+            currentSession?.effectiveCaptureMode = resolution.mode
             liveTranscriptState = LiveTranscriptState(phase: .connecting)
             isListening = true
-            statusText = request.mode == .systemAudioFallbackMicrophone ? "Listening with Live Audio" : "Listening for audio"
+            statusText = resolution.startupStatusText
             backendStatusText = "Connecting to local FunASR backend"
             let language = languagePair.source
 
@@ -287,31 +295,6 @@ public final class AppStore {
 
         let request = fileTranscriptionService.makeRequest(fileURL: selectedFileURL, languages: languagePair)
         return fileTranscriptionService.demoProgressSequence(for: request)
-    }
-
-    private func resolveCaptureRequest() -> (source: AudioSource, deviceID: String?, mode: EffectiveCaptureMode)? {
-        switch selectedSource {
-        case .microphone:
-            return (.microphone, nil, .microphone)
-        case .systemAudio:
-            if let deviceID = selectedLoopbackDeviceID {
-                return (.systemAudio, deviceID, .routedSystemAudio)
-            }
-
-            return (.microphone, nil, .systemAudioFallbackMicrophone)
-        case .appAudio:
-            guard let deviceID = selectedLoopbackDeviceID else {
-                statusText = "App Audio requires loopback"
-                updateSetupMessage("Install a virtual audio device to isolate audio from a single app.")
-                activeCaptureMode = .appAudioRequiresLoopback
-                isListening = false
-                return nil
-            }
-
-            return (.appAudio, deviceID, .appAudio)
-        case .importedFile:
-            return nil
-        }
     }
 
     private static func loadAppearanceMode() -> AppearanceMode {
@@ -575,6 +558,77 @@ public final class AppStore {
 }
 
 private extension AppStore {
+    struct CaptureResolution {
+        struct Request {
+            let source: AudioSource
+            let deviceID: String?
+        }
+
+        struct BlockedState {
+            let statusText: String
+            let setupMessage: String?
+        }
+
+        let mode: EffectiveCaptureMode
+        let request: Request?
+        let blockedState: BlockedState?
+
+        var startupStatusText: String {
+            "Listening with \(mode.statusLabel)"
+        }
+
+        static func resolve(
+            selectedSource: AudioSource,
+            selectedLoopbackDeviceID: String?
+        ) -> CaptureResolution {
+            switch selectedSource {
+            case .microphone:
+                return CaptureResolution(
+                    mode: .microphone,
+                    request: Request(source: .microphone, deviceID: nil),
+                    blockedState: nil
+                )
+            case .systemAudio:
+                if let deviceID = selectedLoopbackDeviceID {
+                    return CaptureResolution(
+                        mode: .routedSystemAudio,
+                        request: Request(source: .systemAudio, deviceID: deviceID),
+                        blockedState: nil
+                    )
+                }
+
+                return CaptureResolution(
+                    mode: .systemAudioFallbackMicrophone,
+                    request: Request(source: .microphone, deviceID: nil),
+                    blockedState: nil
+                )
+            case .appAudio:
+                guard let deviceID = selectedLoopbackDeviceID else {
+                    return CaptureResolution(
+                        mode: .appAudioRequiresLoopback,
+                        request: nil,
+                        blockedState: BlockedState(
+                            statusText: "App Audio requires loopback",
+                            setupMessage: "Install a virtual audio device to isolate audio from a single app."
+                        )
+                    )
+                }
+
+                return CaptureResolution(
+                    mode: .appAudio,
+                    request: Request(source: .appAudio, deviceID: deviceID),
+                    blockedState: nil
+                )
+            case .importedFile:
+                return CaptureResolution(
+                    mode: .microphone,
+                    request: nil,
+                    blockedState: nil
+                )
+            }
+        }
+    }
+
     actor StreamingChunkSender {
         private var isReady = false
         private var pendingChunks: [Data] = []

@@ -127,6 +127,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(requestedSource, .microphone)
         XCTAssertNil(requestedDeviceID)
         XCTAssertEqual(store.effectiveCaptureMode, .systemAudioFallbackMicrophone)
+        XCTAssertEqual(store.statusText, "Listening with Live Audio")
     }
 
     @MainActor
@@ -608,7 +609,7 @@ final class AppStoreTests: XCTestCase {
         store.startListening()
 
         XCTAssertTrue(store.isListening)
-        XCTAssertEqual(store.statusText, "Listening for audio")
+        XCTAssertEqual(store.statusText, "Listening with Microphone")
     }
 
     @MainActor
