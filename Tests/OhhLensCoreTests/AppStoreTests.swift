@@ -121,6 +121,7 @@ final class AppStoreTests: XCTestCase {
 
         store.selectedSource = .systemAudio
         store.selectedLoopbackDeviceID = nil
+        defer { store.stopListening() }
         store.startListening()
 
         XCTAssertEqual(requestedSource, .microphone)
