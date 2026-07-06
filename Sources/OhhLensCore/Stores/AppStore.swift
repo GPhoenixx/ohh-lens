@@ -1,6 +1,15 @@
 import Foundation
 import Observation
 
+public enum EffectiveCaptureMode: Equatable, Codable {
+    case microphone
+    case systemAudioLoopback
+    case systemAudioRequiresLoopback
+    case systemAudioFallbackMicrophone
+    case appAudioLoopback
+    case appAudioRequiresLoopback
+}
+
 @MainActor
 @Observable
 public final class AppStore {
@@ -33,15 +42,27 @@ public final class AppStore {
             synchronizeHistoryViewerSelection()
         }
     }
+    public var effectiveCaptureMode: EffectiveCaptureMode {
+        switch selectedSource {
+        case .microphone:
+            return .microphone
+        case .systemAudio:
+            return selectedLoopbackDeviceID == nil ? .systemAudioRequiresLoopback : .systemAudioLoopback
+        case .appAudio:
+            return selectedLoopbackDeviceID == nil ? .appAudioRequiresLoopback : .appAudioLoopback
+        case .importedFile:
+            return .microphone
+        }
+    }
 
     private let historyStore: HistoryStore?
     private let fileTranscriptionService = FileTranscriptionService()
     private let audioChunkPipeline = AudioChunkPipeline()
     private let deviceCatalog: AudioDeviceCatalog
-    private let loopbackCaptureServiceFactory: (AudioSource, String?) -> LoopbackCaptureService
+    private let audioCaptureServiceFactory: (AudioSource, String?) -> any AudioCaptureServicing
     private let streamingClientFactory: () -> any FunASRStreamingServicing
     private let streamingChunkSender = StreamingChunkSender()
-    private var loopbackCaptureService: LoopbackCaptureService?
+    private var audioCaptureService: (any AudioCaptureServicing)?
     private var streamingTask: Task<Void, Never>?
     private var streamingClient: (any FunASRStreamingServicing)?
     private var currentSession: SessionRecord?
@@ -49,8 +70,12 @@ public final class AppStore {
     public init() {
         self.historyStore = AppStore.makeDefaultHistoryStore()
         self.deviceCatalog = AppStore.makeDefaultDeviceCatalog()
-        self.loopbackCaptureServiceFactory = { source, deviceID in
-            LoopbackCaptureService(source: source, deviceID: deviceID)
+        self.audioCaptureServiceFactory = { source, deviceID in
+            if source == .microphone {
+                return MicrophoneCaptureService(deviceID: deviceID)
+            }
+
+            return LoopbackCaptureService(source: source, deviceID: deviceID)
         }
         self.streamingClientFactory = { FunASRStreamingClient() }
         self.setupMessage = AppStore.defaultSetupMessage()
@@ -69,14 +94,18 @@ public final class AppStore {
     public init(
         historyStore: HistoryStore?,
         deviceCatalog: AudioDeviceCatalog = .init(),
-        loopbackCaptureServiceFactory: @escaping (AudioSource, String?) -> LoopbackCaptureService = { source, deviceID in
-            LoopbackCaptureService(source: source, deviceID: deviceID)
+        audioCaptureServiceFactory: @escaping (AudioSource, String?) -> any AudioCaptureServicing = { source, deviceID in
+            if source == .microphone {
+                return MicrophoneCaptureService(deviceID: deviceID)
+            }
+
+            return LoopbackCaptureService(source: source, deviceID: deviceID)
         },
         streamingClientFactory: @escaping () -> any FunASRStreamingServicing = { FunASRStreamingClient() }
     ) {
         self.historyStore = historyStore
         self.deviceCatalog = deviceCatalog
-        self.loopbackCaptureServiceFactory = loopbackCaptureServiceFactory
+        self.audioCaptureServiceFactory = audioCaptureServiceFactory
         self.streamingClientFactory = streamingClientFactory
         self.setupMessage = AppStore.defaultSetupMessage()
         self.selectedAppearanceMode = AppStore.loadAppearanceMode()
@@ -102,7 +131,7 @@ public final class AppStore {
             }
         }
 
-        let service = loopbackCaptureServiceFactory(
+        var service = audioCaptureServiceFactory(
             selectedSource,
             requiresLoopbackDevice ? selectedLoopbackDeviceID : nil
         )
@@ -124,7 +153,7 @@ public final class AppStore {
 
         do {
             try service.start()
-            loopbackCaptureService = service
+            audioCaptureService = service
             streamingClient = client
             currentSession = audioChunkPipeline.beginSession(source: selectedSource, languages: languagePair)
             liveTranscriptState = LiveTranscriptState(phase: .connecting)
@@ -154,7 +183,7 @@ public final class AppStore {
             streamingClient = nil
             currentSession = nil
             liveTranscriptState = LiveTranscriptState()
-            loopbackCaptureService = nil
+            audioCaptureService = nil
             isListening = false
             statusText = requiresLoopbackDevice ? "Loopback unavailable" : "Microphone unavailable"
             updateSetupMessage(error.localizedDescription)
@@ -167,8 +196,8 @@ public final class AppStore {
         streamingTask?.cancel()
         streamingTask = nil
         streamingClient = nil
-        loopbackCaptureService?.stop()
-        loopbackCaptureService = nil
+        audioCaptureService?.stop()
+        audioCaptureService = nil
         isListening = false
         captureLevel = AudioLevelSnapshot()
         statusText = "Idle"
@@ -482,8 +511,8 @@ public final class AppStore {
     }
 
     func handleStreamingFailure(_ error: Error) {
-        loopbackCaptureService?.stop()
-        loopbackCaptureService = nil
+        audioCaptureService?.stop()
+        audioCaptureService = nil
         streamingTask?.cancel()
         streamingTask = nil
         streamingClient = nil
@@ -505,8 +534,8 @@ public final class AppStore {
     }
 
     func completeStreamingSession(backendStatus: String) {
-        loopbackCaptureService?.stop()
-        loopbackCaptureService = nil
+        audioCaptureService?.stop()
+        audioCaptureService = nil
         streamingTask = nil
         streamingClient = nil
         isListening = false

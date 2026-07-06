@@ -24,7 +24,7 @@ final class AppStoreTests: XCTestCase {
                     .init(id: "blackhole", name: "BlackHole 2ch", isInput: true)
                 ]
             ),
-            loopbackCaptureServiceFactory: { _, _ in captureService },
+            audioCaptureServiceFactory: { _, _ in captureService },
             streamingClientFactory: { streamingClient }
         )
 
@@ -60,7 +60,7 @@ final class AppStoreTests: XCTestCase {
 
     @MainActor
     func test_microphonePCMChunksStreamToBackendWhenListeningStarts() async {
-        let captureService = LoopbackCaptureService.testDouble(source: .microphone)
+        let captureService = TestAudioCaptureService(source: .microphone)
         let streamingClient = StubStreamingClient(
             events: [.ready],
             startMode: .blocked
@@ -69,7 +69,7 @@ final class AppStoreTests: XCTestCase {
         let store = AppStore(
             historyStore: nil,
             deviceCatalog: .init(),
-            loopbackCaptureServiceFactory: { _, _ in captureService },
+            audioCaptureServiceFactory: { _, _ in captureService },
             streamingClientFactory: { streamingClient }
         )
 
@@ -103,6 +103,81 @@ final class AppStoreTests: XCTestCase {
     }
 
     @MainActor
+    func test_systemAudioWithoutLoopbackFallsBackToMicrophoneCapture() {
+        let captureService = TestAudioCaptureService(source: .microphone)
+        var requestedSource: AudioSource?
+        var requestedDeviceID: String?
+
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            audioCaptureServiceFactory: { source, deviceID in
+                requestedSource = source
+                requestedDeviceID = deviceID
+                return captureService
+            },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.selectedSource = .systemAudio
+        store.selectedLoopbackDeviceID = nil
+        store.startListening()
+
+        XCTAssertEqual(requestedSource, .microphone)
+        XCTAssertNil(requestedDeviceID)
+        XCTAssertEqual(store.effectiveCaptureMode, .systemAudioFallbackMicrophone)
+    }
+
+    @MainActor
+    func test_appAudioWithoutLoopbackStaysBlocked() {
+        var factoryCallCount = 0
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            audioCaptureServiceFactory: { _, _ in
+                factoryCallCount += 1
+                return TestAudioCaptureService(source: .appAudio)
+            },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.selectedSource = .appAudio
+        store.selectedLoopbackDeviceID = nil
+        store.startListening()
+
+        XCTAssertEqual(factoryCallCount, 0)
+        XCTAssertFalse(store.isListening)
+        XCTAssertEqual(store.effectiveCaptureMode, .appAudioRequiresLoopback)
+        XCTAssertEqual(store.statusText, "App Audio requires loopback")
+    }
+
+    @MainActor
+    func test_fallbackSessionRecordsIntendedSourceAndEffectiveCaptureMode() async {
+        let historyStore = HistoryStore(
+            baseDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        )
+        let captureService = TestAudioCaptureService(source: .microphone)
+        let streamingClient = StubStreamingClient(events: [.ready, .final("hello"), .closed])
+
+        let store = AppStore(
+            historyStore: historyStore,
+            deviceCatalog: .init(),
+            audioCaptureServiceFactory: { _, _ in captureService },
+            streamingClientFactory: { streamingClient }
+        )
+
+        store.selectedSource = .systemAudio
+        store.startListening()
+
+        for _ in 0..<20 where store.history.isEmpty {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(store.history.first?.source, .systemAudio)
+        XCTAssertEqual(store.history.first?.effectiveCaptureMode, .systemAudioFallbackMicrophone)
+    }
+
+    @MainActor
     func test_stopListening_persistsFinalTranscriptToHistory() async {
         let historyStore = HistoryStore(baseDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
         let captureService = LoopbackCaptureService.testDouble(source: .systemAudio)
@@ -117,7 +192,7 @@ final class AppStoreTests: XCTestCase {
                     .init(id: "blackhole", name: "BlackHole 2ch", isInput: true)
                 ]
             ),
-            loopbackCaptureServiceFactory: { _, _ in captureService },
+            audioCaptureServiceFactory: { _, _ in captureService },
             streamingClientFactory: { streamingClient }
         )
 
@@ -154,7 +229,7 @@ final class AppStoreTests: XCTestCase {
                     .init(id: "blackhole", name: "BlackHole 2ch", isInput: true)
                 ]
             ),
-            loopbackCaptureServiceFactory: { _, _ in captureService },
+            audioCaptureServiceFactory: { _, _ in captureService },
             streamingClientFactory: { streamingClient }
         )
 
@@ -414,7 +489,7 @@ final class AppStoreTests: XCTestCase {
                     .init(id: "blackhole", name: "BlackHole 2ch", isInput: true)
                 ]
             ),
-            loopbackCaptureServiceFactory: { _, _ in captureService },
+            audioCaptureServiceFactory: { _, _ in captureService },
             streamingClientFactory: { streamingClient }
         )
         let formatter = DateFormatter()
@@ -524,7 +599,7 @@ final class AppStoreTests: XCTestCase {
         let store = AppStore(
             historyStore: nil,
             deviceCatalog: .init(),
-            loopbackCaptureServiceFactory: { _, _ in captureService },
+            audioCaptureServiceFactory: { _, _ in captureService },
             streamingClientFactory: { streamingClient }
         )
 
@@ -577,6 +652,25 @@ final class AppStoreTests: XCTestCase {
 
         XCTAssertTrue(store.captureLevel.detectedSound)
         XCTAssertEqual(store.statusText, "Backend streaming")
+    }
+}
+
+private final class TestAudioCaptureService: AudioCaptureServicing, @unchecked Sendable {
+    let source: AudioSource
+    var currentLevel = AudioLevelSnapshot()
+    var onLevelUpdate: (@Sendable (AudioLevelSnapshot) -> Void)?
+    var onPCMChunk: (@Sendable (Data) -> Void)?
+
+    init(source: AudioSource) {
+        self.source = source
+    }
+
+    func start() throws {}
+
+    func stop() {}
+
+    func receiveTestPCMChunk(_ data: Data) {
+        onPCMChunk?(data)
     }
 }
 
