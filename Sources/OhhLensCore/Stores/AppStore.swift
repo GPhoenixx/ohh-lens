@@ -34,13 +34,17 @@ public final class AppStore {
         }
     }
     public var effectiveCaptureMode: EffectiveCaptureMode {
+        if isListening, let activeCaptureMode {
+            return activeCaptureMode
+        }
+
         switch selectedSource {
         case .microphone:
             return .microphone
         case .systemAudio:
-            return selectedLoopbackDeviceID == nil ? .systemAudioRequiresLoopback : .systemAudioLoopback
+            return selectedLoopbackDeviceID == nil ? .systemAudioFallbackMicrophone : .routedSystemAudio
         case .appAudio:
-            return selectedLoopbackDeviceID == nil ? .appAudioRequiresLoopback : .appAudioLoopback
+            return selectedLoopbackDeviceID == nil ? .appAudioRequiresLoopback : .appAudio
         case .importedFile:
             return .microphone
         }
@@ -56,6 +60,7 @@ public final class AppStore {
     private var audioCaptureService: (any AudioCaptureServicing)?
     private var streamingTask: Task<Void, Never>?
     private var streamingClient: (any FunASRStreamingServicing)?
+    private var activeCaptureMode: EffectiveCaptureMode?
     private var currentSession: SessionRecord?
 
     public init() {
@@ -112,26 +117,18 @@ public final class AppStore {
     }
 
     public func startListening() {
-        let requiresLoopbackDevice = selectedSource == .systemAudio || selectedSource == .appAudio
-
-        if requiresLoopbackDevice {
-            guard selectedLoopbackDeviceID != nil else {
-                statusText = "No loopback device"
-                isListening = false
-                return
-            }
+        guard let request = resolveCaptureRequest() else {
+            return
         }
 
-        var service = audioCaptureServiceFactory(
-            selectedSource,
-            requiresLoopbackDevice ? selectedLoopbackDeviceID : nil
-        )
+        var service = audioCaptureServiceFactory(request.source, request.deviceID)
         let client = streamingClientFactory()
         service.onLevelUpdate = { [weak self] level in
             Task { @MainActor in
                 self?.updateCaptureLevel(level)
             }
         }
+
         service.onPCMChunk = { [weak self] chunk in
             Task {
                 guard let self else {
@@ -144,12 +141,14 @@ public final class AppStore {
 
         do {
             try service.start()
+            activeCaptureMode = request.mode
             audioCaptureService = service
             streamingClient = client
             currentSession = audioChunkPipeline.beginSession(source: selectedSource, languages: languagePair)
+            currentSession?.effectiveCaptureMode = request.mode
             liveTranscriptState = LiveTranscriptState(phase: .connecting)
             isListening = true
-            statusText = "Listening for audio"
+            statusText = request.mode == .systemAudioFallbackMicrophone ? "Listening with Live Audio" : "Listening for audio"
             backendStatusText = "Connecting to local FunASR backend"
             let language = languagePair.source
 
@@ -172,11 +171,12 @@ public final class AppStore {
                 await client.stopSession()
             }
             streamingClient = nil
+            activeCaptureMode = nil
             currentSession = nil
             liveTranscriptState = LiveTranscriptState()
             audioCaptureService = nil
             isListening = false
-            statusText = requiresLoopbackDevice ? "Loopback unavailable" : "Microphone unavailable"
+            statusText = request.source == .microphone ? "Microphone unavailable" : "Loopback unavailable"
             updateSetupMessage(error.localizedDescription)
         }
     }
@@ -189,6 +189,7 @@ public final class AppStore {
         streamingClient = nil
         audioCaptureService?.stop()
         audioCaptureService = nil
+        activeCaptureMode = nil
         isListening = false
         captureLevel = AudioLevelSnapshot()
         statusText = "Idle"
@@ -286,6 +287,31 @@ public final class AppStore {
 
         let request = fileTranscriptionService.makeRequest(fileURL: selectedFileURL, languages: languagePair)
         return fileTranscriptionService.demoProgressSequence(for: request)
+    }
+
+    private func resolveCaptureRequest() -> (source: AudioSource, deviceID: String?, mode: EffectiveCaptureMode)? {
+        switch selectedSource {
+        case .microphone:
+            return (.microphone, nil, .microphone)
+        case .systemAudio:
+            if let deviceID = selectedLoopbackDeviceID {
+                return (.systemAudio, deviceID, .routedSystemAudio)
+            }
+
+            return (.microphone, nil, .systemAudioFallbackMicrophone)
+        case .appAudio:
+            guard let deviceID = selectedLoopbackDeviceID else {
+                statusText = "App Audio requires loopback"
+                updateSetupMessage("Install a virtual audio device to isolate audio from a single app.")
+                activeCaptureMode = .appAudioRequiresLoopback
+                isListening = false
+                return nil
+            }
+
+            return (.appAudio, deviceID, .appAudio)
+        case .importedFile:
+            return nil
+        }
     }
 
     private static func loadAppearanceMode() -> AppearanceMode {
@@ -507,6 +533,7 @@ public final class AppStore {
         streamingTask?.cancel()
         streamingTask = nil
         streamingClient = nil
+        activeCaptureMode = nil
         isListening = false
         captureLevel = AudioLevelSnapshot()
         statusText = "Idle"
@@ -529,6 +556,7 @@ public final class AppStore {
         audioCaptureService = nil
         streamingTask = nil
         streamingClient = nil
+        activeCaptureMode = nil
         isListening = false
         captureLevel = AudioLevelSnapshot()
         statusText = "Idle"
