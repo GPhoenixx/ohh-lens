@@ -41,18 +41,7 @@ public final class AppStore {
         return captureResolution.mode
     }
     public var liveIdleMessage: String {
-        switch effectiveCaptureMode {
-        case .microphone:
-            "Press Start Listening to capture live speech from your microphone."
-        case .routedSystemAudio:
-            "Press Start Listening to capture routed system audio in real time."
-        case .systemAudioFallbackMicrophone:
-            "Press Start Listening to capture live audio through your microphone."
-        case .appAudio:
-            "Press Start Listening to capture routed audio from the selected app."
-        case .appAudioRequiresLoopback:
-            "Install a virtual audio device before starting App Audio capture."
-        }
+        effectiveCaptureMode.displayCopy.liveIdleMessage
     }
 
     private let historyStore: HistoryStore?

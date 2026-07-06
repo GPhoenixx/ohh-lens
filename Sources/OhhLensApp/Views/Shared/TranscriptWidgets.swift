@@ -94,8 +94,9 @@ struct TranscriptScreenHeader: View {
 
     @ViewBuilder
     private var headerMiddleControl: some View {
-        switch effectiveCaptureMode {
-        case .routedSystemAudio, .appAudio:
+        let displayCopy = effectiveCaptureMode.displayCopy
+
+        if displayCopy.showsLoopbackDevicePicker {
             CompactSelectionField(
                 title: "Loopback Device",
                 selection: Binding(
@@ -105,12 +106,8 @@ struct TranscriptScreenHeader: View {
                 options: availableLoopbackDevices.map(\.id),
                 label: loopbackName(for:)
             )
-        case .systemAudioFallbackMicrophone:
-            MissingLoopbackPill(text: isListening ? "Live Audio" : "Live Audio Ready")
-        case .appAudioRequiresLoopback:
-            MissingLoopbackPill(text: "App Audio Needs Loopback")
-        case .microphone:
-            MissingLoopbackPill(text: isListening ? "Microphone Live" : "Microphone Ready")
+        } else if let headerPillText = displayCopy.headerPillText(isListening: isListening) {
+            MissingLoopbackPill(text: headerPillText)
         }
     }
 

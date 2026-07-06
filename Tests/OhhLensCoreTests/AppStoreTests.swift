@@ -169,6 +169,26 @@ final class AppStoreTests: XCTestCase {
     }
 
     @MainActor
+    func test_systemAudioFallbackCentralizesCopyByCaptureMode() {
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            audioCaptureServiceFactory: { _, _ in TestAudioCaptureService(source: .microphone) },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.selectedSource = .systemAudio
+
+        let copy = store.effectiveCaptureMode.displayCopy
+
+        XCTAssertEqual(copy.statusLabel, "Live Audio")
+        XCTAssertEqual(copy.liveIdleMessage, "Press Start Listening to capture live audio through your microphone.")
+        XCTAssertEqual(copy.headerPillText(isListening: false), "Live Audio Ready")
+        XCTAssertEqual(copy.headerPillText(isListening: true), "Live Audio")
+        XCTAssertEqual(store.liveIdleMessage, copy.liveIdleMessage)
+    }
+
+    @MainActor
     func test_fallbackSessionRecordsIntendedSourceAndEffectiveCaptureMode() async {
         let historyStore = HistoryStore(
             baseDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
