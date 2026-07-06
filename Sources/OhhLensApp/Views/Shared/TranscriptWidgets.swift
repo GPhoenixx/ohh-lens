@@ -51,7 +51,7 @@ func makeTranscriptFooterBindings(for appStore: AppStore) -> TranscriptFooterBin
 
 struct TranscriptScreenHeader: View {
     let title: String
-    let selectedSource: AudioSource
+    let effectiveCaptureMode: EffectiveCaptureMode
     let isListening: Bool
     let isPiPVisible: Bool
     let availableLoopbackDevices: [AudioInputDevice]
@@ -94,21 +94,22 @@ struct TranscriptScreenHeader: View {
 
     @ViewBuilder
     private var headerMiddleControl: some View {
-        if selectedSource == .systemAudio || selectedSource == .appAudio {
-            if availableLoopbackDevices.isEmpty {
-                MissingLoopbackPill(text: "No loopback device")
-            } else {
-                CompactSelectionField(
-                    title: "Loopback Device",
-                    selection: Binding(
-                        get: { selectedLoopbackDeviceID ?? "" },
-                        set: { selectedLoopbackDeviceID = $0 }
-                    ),
-                    options: availableLoopbackDevices.map(\.id),
-                    label: loopbackName(for:)
-                )
-            }
-        } else {
+        switch effectiveCaptureMode {
+        case .routedSystemAudio, .appAudio:
+            CompactSelectionField(
+                title: "Loopback Device",
+                selection: Binding(
+                    get: { selectedLoopbackDeviceID ?? "" },
+                    set: { selectedLoopbackDeviceID = $0 }
+                ),
+                options: availableLoopbackDevices.map(\.id),
+                label: loopbackName(for:)
+            )
+        case .systemAudioFallbackMicrophone:
+            MissingLoopbackPill(text: isListening ? "Live Audio" : "Live Audio Ready")
+        case .appAudioRequiresLoopback:
+            MissingLoopbackPill(text: "App Audio Needs Loopback")
+        case .microphone:
             MissingLoopbackPill(text: isListening ? "Microphone Live" : "Microphone Ready")
         }
     }
@@ -157,6 +158,7 @@ struct TranscriptPanel<Content: View, Footer: View>: View {
 struct LiveCaptionViewport: View {
     let visibleCaptionLines: [String]
     let isListening: Bool
+    let idleMessage: String
     let lastError: String?
     @State private var previousVisibleCaptionLines: [String] = []
 
@@ -185,7 +187,7 @@ struct LiveCaptionViewport: View {
             if visibleCaptionLines.isEmpty {
                 TranscriptIdleState(
                     title: "Live Subtitles Idle",
-                    message: "Press Start Listening to capture system-wide streaming audio in real time."
+                    message: idleMessage
                 )
                 .frame(maxHeight: .infinity)
             } else {

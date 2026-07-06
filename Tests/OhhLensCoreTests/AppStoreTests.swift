@@ -154,6 +154,21 @@ final class AppStoreTests: XCTestCase {
     }
 
     @MainActor
+    func test_systemAudioFallbackUsesLiveAudioMessaging() {
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            audioCaptureServiceFactory: { _, _ in TestAudioCaptureService(source: .microphone) },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.selectedSource = .systemAudio
+
+        XCTAssertEqual(store.effectiveCaptureMode.statusLabel, "Live Audio")
+        XCTAssertEqual(store.liveIdleMessage, "Press Start Listening to capture live audio through your microphone.")
+    }
+
+    @MainActor
     func test_fallbackSessionRecordsIntendedSourceAndEffectiveCaptureMode() async {
         let historyStore = HistoryStore(
             baseDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -10,7 +10,7 @@ struct LiveView: View {
         VStack(alignment: .leading, spacing: 20) {
             TranscriptScreenHeader(
                 title: "Live Subtitles",
-                selectedSource: appStore.selectedSource,
+                effectiveCaptureMode: appStore.effectiveCaptureMode,
                 isListening: appStore.isListening,
                 isPiPVisible: appStore.pipState.isVisible,
                 availableLoopbackDevices: appStore.availableLoopbackDevices,
@@ -22,6 +22,7 @@ struct LiveView: View {
                 LiveCaptionViewport(
                     visibleCaptionLines: appStore.liveTranscriptState.visibleCaptionLines,
                     isListening: appStore.isListening,
+                    idleMessage: appStore.liveIdleMessage,
                     lastError: appStore.liveTranscriptState.lastError
                 )
             } footer: {

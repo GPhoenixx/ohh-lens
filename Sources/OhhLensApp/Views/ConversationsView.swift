@@ -10,7 +10,7 @@ struct ConversationsView: View {
         VStack(alignment: .leading, spacing: 20) {
             TranscriptScreenHeader(
                 title: "Conversations",
-                selectedSource: appStore.selectedSource,
+                effectiveCaptureMode: appStore.effectiveCaptureMode,
                 isListening: appStore.isListening,
                 isPiPVisible: appStore.pipState.isVisible,
                 availableLoopbackDevices: appStore.availableLoopbackDevices,
