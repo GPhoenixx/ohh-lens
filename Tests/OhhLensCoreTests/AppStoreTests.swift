@@ -189,6 +189,23 @@ final class AppStoreTests: XCTestCase {
     }
 
     @MainActor
+    func test_refreshLoopbackDevicesExplainsFallbackAndAppAudioConstraint() {
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            audioCaptureServiceFactory: { _, _ in TestAudioCaptureService(source: .microphone) },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.refreshLoopbackDevices()
+
+        XCTAssertEqual(
+            store.setupMessage,
+            "No virtual audio device found. System Audio will use Live Audio fallback; App Audio still requires loopback."
+        )
+    }
+
+    @MainActor
     func test_fallbackSessionRecordsIntendedSourceAndEffectiveCaptureMode() async {
         let historyStore = HistoryStore(
             baseDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

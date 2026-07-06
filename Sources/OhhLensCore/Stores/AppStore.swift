@@ -236,9 +236,9 @@ public final class AppStore {
         }
 
         if let firstDevice = devices.first {
-            updateSetupMessage("Loopback device ready: \(firstDevice.name)")
+            updateSetupMessage("Loopback device ready: \(firstDevice.name). System Audio can use routed capture.")
         } else {
-            updateSetupMessage("No virtual audio device found. Install and route system audio through the helper device.")
+            updateSetupMessage("No virtual audio device found. System Audio will use Live Audio fallback; App Audio still requires loopback.")
         }
     }
 

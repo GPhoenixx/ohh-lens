@@ -18,7 +18,7 @@ struct SetupView: View {
                     settingsGroup(title: "Audio & Transcription Model") {
                         settingsRow(
                             title: "Loopback Device",
-                            detail: "Choose virtual device routing streaming audio"
+                            detail: "Virtual devices enable true routed System Audio and App Audio capture. Without one, System Audio falls back to Live Audio through the microphone."
                         ) {
                             HStack(spacing: 8) {
                                 Picker(
