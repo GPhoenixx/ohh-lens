@@ -45,6 +45,32 @@ final class LoopbackCaptureServiceTests: XCTestCase {
         XCTAssertEqual(recorder.chunks, [Data([0x01, 0x02, 0x03, 0x04])])
     }
 
+    func test_debugPCMPreviewFormatsInt16Samples() {
+        let preview = LoopbackCaptureService.debugPCMPreview(
+            for: Data([0x10, 0x00, 0xF0, 0xFF, 0x20, 0x00]),
+            maxSamples: 4
+        )
+
+        XCTAssertEqual(preview, "[16, -16, 32]")
+    }
+
+    func test_shouldLogPCMChunkOnlyForLoopbackSourcesAndThrottleAfterFirstFewChunks() {
+        XCTAssertTrue(LoopbackCaptureService.shouldLogPCMChunk(index: 1, source: .systemAudio))
+        XCTAssertTrue(LoopbackCaptureService.shouldLogPCMChunk(index: 5, source: .appAudio))
+        XCTAssertFalse(LoopbackCaptureService.shouldLogPCMChunk(index: 6, source: .systemAudio))
+        XCTAssertTrue(LoopbackCaptureService.shouldLogPCMChunk(index: 50, source: .systemAudio))
+        XCTAssertFalse(LoopbackCaptureService.shouldLogPCMChunk(index: 1, source: .microphone))
+    }
+
+    func test_debugFloatPreviewFormatsValues() {
+        let preview = LoopbackCaptureService.debugFloatPreview(
+            for: [0.3, 0.1, -0.15],
+            maxSamples: 4
+        )
+
+        XCTAssertEqual(preview, "[0.3000, 0.1000, -0.1500]")
+    }
+
     func test_catalogReturnsLikelyVirtualDevicesFirst() {
         let catalog = AudioDeviceCatalog(
             devices: [
@@ -57,6 +83,42 @@ final class LoopbackCaptureServiceTests: XCTestCase {
         let devices = catalog.loopbackInputDevices()
 
         XCTAssertEqual(devices.map(\.id), ["blackhole", "vb"])
+    }
+
+    func test_catalogPrefersNonLoopbackInputForMicrophoneCapture() {
+        let catalog = AudioDeviceCatalog(
+            devices: [
+                .init(id: "blackhole", name: "BlackHole 2ch", isInput: true),
+                .init(id: "built-in", name: "MacBook Pro Microphone", isInput: true),
+                .init(id: "loopback", name: "Loopback Audio", isInput: true)
+            ]
+        )
+
+        let device = catalog.preferredInputDevice(for: .microphone)
+
+        XCTAssertEqual(device?.id, "built-in")
+    }
+
+    func test_catalogPrefersLoopbackInputForSystemAudioCapture() {
+        let catalog = AudioDeviceCatalog(
+            devices: [
+                .init(id: "built-in", name: "MacBook Pro Microphone", isInput: true),
+                .init(id: "blackhole", name: "BlackHole 2ch", isInput: true)
+            ]
+        )
+
+        let device = catalog.preferredInputDevice(for: .systemAudio)
+
+        XCTAssertEqual(device?.id, "blackhole")
+    }
+
+    func test_audioSourceDisplayCopyMatchesCaptureModes() {
+        XCTAssertEqual(AudioSource.microphone.displayTitle, "Microphone")
+        XCTAssertEqual(AudioSource.microphone.displayDescription, "Uses your real input device. Best for direct speech capture.")
+        XCTAssertEqual(AudioSource.systemAudio.displayTitle, "System Audio")
+        XCTAssertEqual(AudioSource.systemAudio.displayDescription, "Uses loopback when available, otherwise falls back to microphone.")
+        XCTAssertEqual(AudioSource.appAudio.displayTitle, "App Audio")
+        XCTAssertEqual(AudioSource.appAudio.displayDescription, "Requires a loopback device.")
     }
 
     @MainActor

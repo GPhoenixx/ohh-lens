@@ -1,9 +1,27 @@
 import Foundation
 import Observation
+#if os(macOS)
+import AppKit
+#endif
 
 @MainActor
 @Observable
 public final class AppStore {
+    public struct HeaderPillState: Equatable {
+        public enum Action: Equatable {
+            case none
+            case requestPermission
+            case openSettings
+        }
+
+        public let text: String
+        public let action: Action
+
+        public var isInteractive: Bool {
+            action != .none
+        }
+    }
+
     private static let appearanceModeDefaultsKey = "selectedAppearanceMode"
 
     public var selectedSection: AppSection = .liveSubtitles
@@ -27,6 +45,7 @@ public final class AppStore {
     public var fileTranscription = FileTranscriptionViewState()
     public var historyViewer = HistoryViewerState()
     public var pipState = PiPViewState()
+    public var permissionsSnapshot = PermissionsSnapshot(microphonePermission: .notDetermined)
     public var history: [SessionRecord] = [] {
         didSet {
             persistHistory()
@@ -43,11 +62,27 @@ public final class AppStore {
     public var liveIdleMessage: String {
         effectiveCaptureMode.displayCopy.liveIdleMessage
     }
+    public var headerPillState: HeaderPillState? {
+        headerPillState(for: effectiveCaptureMode, isListening: isListening)
+    }
+
+    @MainActor
+    public static func defaultOpenMicrophoneSettings() {
+#if os(macOS)
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") else {
+            return
+        }
+
+        NSWorkspace.shared.open(url)
+#endif
+    }
 
     private let historyStore: HistoryStore?
     private let fileTranscriptionService = FileTranscriptionService()
     private let audioChunkPipeline = AudioChunkPipeline()
     private let deviceCatalog: AudioDeviceCatalog
+    private let permissionsService: any PermissionsServicing
+    private let openMicrophoneSettings: @MainActor () -> Void
     private let audioCaptureServiceFactory: (AudioSource, String?) -> any AudioCaptureServicing
     private let streamingClientFactory: () -> any FunASRStreamingServicing
     private let streamingChunkSender = StreamingChunkSender()
@@ -66,15 +101,14 @@ public final class AppStore {
     public init() {
         self.historyStore = AppStore.makeDefaultHistoryStore()
         self.deviceCatalog = AppStore.makeDefaultDeviceCatalog()
+        self.permissionsService = PermissionsService()
+        self.openMicrophoneSettings = AppStore.defaultOpenMicrophoneSettings
         self.audioCaptureServiceFactory = { source, deviceID in
-            if source == .microphone {
-                return MicrophoneCaptureService(deviceID: deviceID)
-            }
-
             return LoopbackCaptureService(source: source, deviceID: deviceID)
         }
         self.streamingClientFactory = { FunASRStreamingClient() }
-        self.setupMessage = AppStore.defaultSetupMessage()
+        self.permissionsSnapshot = self.permissionsService.currentSnapshot()
+        self.setupMessage = AppStore.defaultSetupMessage(permissions: self.permissionsSnapshot)
         self.selectedAppearanceMode = AppStore.loadAppearanceMode()
 
         if let historyStore {
@@ -90,20 +124,21 @@ public final class AppStore {
     public init(
         historyStore: HistoryStore?,
         deviceCatalog: AudioDeviceCatalog = .init(),
+        permissionsService: any PermissionsServicing = PermissionsService(),
+        openMicrophoneSettings: @escaping @MainActor () -> Void = AppStore.defaultOpenMicrophoneSettings,
         audioCaptureServiceFactory: @escaping (AudioSource, String?) -> any AudioCaptureServicing = { source, deviceID in
-            if source == .microphone {
-                return MicrophoneCaptureService(deviceID: deviceID)
-            }
-
             return LoopbackCaptureService(source: source, deviceID: deviceID)
         },
         streamingClientFactory: @escaping () -> any FunASRStreamingServicing = { FunASRStreamingClient() }
     ) {
         self.historyStore = historyStore
         self.deviceCatalog = deviceCatalog
+        self.permissionsService = permissionsService
+        self.openMicrophoneSettings = openMicrophoneSettings
         self.audioCaptureServiceFactory = audioCaptureServiceFactory
         self.streamingClientFactory = streamingClientFactory
-        self.setupMessage = AppStore.defaultSetupMessage()
+        self.permissionsSnapshot = permissionsService.currentSnapshot()
+        self.setupMessage = AppStore.defaultSetupMessage(permissions: self.permissionsSnapshot)
         self.selectedAppearanceMode = AppStore.loadAppearanceMode()
 
         if let historyStore {
@@ -118,6 +153,39 @@ public final class AppStore {
 
     public func startListening() {
         let resolution = captureResolution
+        refreshMicrophonePermission()
+
+        if resolution.usesMicrophone {
+            switch permissionsSnapshot.microphonePermission {
+            case .granted:
+                break
+            case .notDetermined:
+                statusText = "Requesting microphone access"
+                Task { [weak self] in
+                    guard let self else {
+                        return
+                    }
+
+                    let granted = await permissionsService.requestMicrophoneAccess()
+                    permissionsSnapshot = permissionsService.currentSnapshot()
+
+                    guard granted else {
+                        statusText = "Microphone access needed"
+                        updateSetupMessage(microphonePermissionMessage())
+                        isListening = false
+                        return
+                    }
+
+                    startListening()
+                }
+                return
+            case .denied, .restricted:
+                statusText = "Microphone access needed"
+                updateSetupMessage(microphonePermissionMessage())
+                isListening = false
+                return
+            }
+        }
 
         guard let request = resolution.request else {
             if let blockedState = resolution.blockedState {
@@ -228,11 +296,17 @@ public final class AppStore {
     }
 
     public func refreshLoopbackDevices() {
+        refreshMicrophonePermission()
         let devices = deviceCatalog.loopbackInputDevices()
         availableLoopbackDevices = devices
 
         if selectedLoopbackDeviceID == nil || devices.contains(where: { $0.id == selectedLoopbackDeviceID }) == false {
             selectedLoopbackDeviceID = devices.first?.id
+        }
+
+        guard permissionsSnapshot.microphoneAuthorized else {
+            updateSetupMessage(microphonePermissionMessage())
+            return
         }
 
         if let firstDevice = devices.first {
@@ -260,6 +334,31 @@ public final class AppStore {
 
     public func togglePiP() {
         pipState.isVisible.toggle()
+    }
+
+    public func refreshMicrophonePermission() {
+        permissionsSnapshot = permissionsService.currentSnapshot()
+    }
+
+    public func handleHeaderPillAction() async {
+        guard let headerPillState else {
+            return
+        }
+
+        switch headerPillState.action {
+        case .none:
+            return
+        case .requestPermission:
+            let granted = await permissionsService.requestMicrophoneAccess()
+            permissionsSnapshot = permissionsService.currentSnapshot()
+            updateSetupMessage(
+                granted
+                    ? "Microphone access granted. Live subtitles can start instantly."
+                    : microphonePermissionMessage()
+            )
+        case .openSettings:
+            openMicrophoneSettings()
+        }
     }
 
     public func beginFileTranscription(for fileURL: URL) {
@@ -558,6 +657,47 @@ public final class AppStore {
 
         currentSession = nil
     }
+
+    private func headerPillState(
+        for mode: EffectiveCaptureMode,
+        isListening: Bool
+    ) -> HeaderPillState? {
+        let displayCopy = mode.displayCopy
+
+        guard displayCopy.showsLoopbackDevicePicker == false else {
+            return nil
+        }
+
+        let usesMicrophone = mode == .microphone || mode == .systemAudioFallbackMicrophone
+
+        if usesMicrophone, isListening == false {
+            switch permissionsSnapshot.microphonePermission {
+            case .notDetermined:
+                return HeaderPillState(text: "Allow Microphone", action: .requestPermission)
+            case .denied, .restricted:
+                return HeaderPillState(text: "Open Microphone Settings", action: .openSettings)
+            case .granted:
+                break
+            }
+        }
+
+        guard let text = displayCopy.headerPillText(isListening: isListening) else {
+            return nil
+        }
+
+        return HeaderPillState(text: text, action: .none)
+    }
+
+    private func microphonePermissionMessage() -> String {
+        switch permissionsSnapshot.microphonePermission {
+        case .notDetermined:
+            return "Allow microphone access to start live subtitles."
+        case .denied, .restricted:
+            return "Microphone access is off. Open System Settings > Privacy & Security > Microphone to enable it."
+        case .granted:
+            return "Microphone access granted. Live subtitles can start instantly."
+        }
+    }
 }
 
 private extension AppStore {
@@ -575,6 +715,9 @@ private extension AppStore {
         let mode: EffectiveCaptureMode
         let request: Request?
         let blockedState: BlockedState?
+        var usesMicrophone: Bool {
+            request?.source == .microphone
+        }
 
         var startupStatusText: String {
             "Listening with \(mode.statusLabel)"
@@ -688,9 +831,7 @@ private extension AppStore {
         AudioDeviceCatalog.systemDefault()
     }
 
-    static func defaultSetupMessage() -> String {
-        let permissions = PermissionsService().currentSnapshot()
-
+    static func defaultSetupMessage(permissions: PermissionsSnapshot) -> String {
         guard permissions.microphoneAuthorized else {
             return "Microphone access is required before live subtitles can start."
         }

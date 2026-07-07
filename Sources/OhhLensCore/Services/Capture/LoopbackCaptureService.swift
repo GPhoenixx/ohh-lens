@@ -13,6 +13,8 @@ public final class LoopbackCaptureService: NSObject, AudioCaptureServicing {
     private let captureQueue = DispatchQueue(label: "com.ohhlens.loopback-capture")
     private var captureSession: AVCaptureSession?
     private var sampleBufferDelegate: SampleBufferDelegate?
+    private var activeDeviceName = "Unknown device"
+    private var loggedPCMChunkCount = 0
 
     public init(source: AudioSource, deviceID: String? = nil) {
         self.source = source
@@ -39,6 +41,9 @@ public final class LoopbackCaptureService: NSObject, AudioCaptureServicing {
         session.beginConfiguration()
 
         let device = try resolvedDevice()
+        print("device: \(device)")
+        activeDeviceName = device.localizedName
+        Self.emitConsoleLine("LoopbackCapture start source=\(source.rawValue) device=\(activeDeviceName)")
         let input = try AVCaptureDeviceInput(device: device)
 
         guard session.canAddInput(input) else {
@@ -68,6 +73,7 @@ public final class LoopbackCaptureService: NSObject, AudioCaptureServicing {
         captureSession?.stopRunning()
         captureSession = nil
         sampleBufferDelegate = nil
+        loggedPCMChunkCount = 0
         publish(level: AudioLevelSnapshot())
     }
 
@@ -87,7 +93,12 @@ public final class LoopbackCaptureService: NSObject, AudioCaptureServicing {
 extension LoopbackCaptureService {
     static let backendSampleRate = 16_000.0
 
-    static func pcmS16Mono16kChunk(from pcmBuffer: AVAudioPCMBuffer) -> Data? {
+    struct DebugChunkContext {
+        let chunkIndex: Int
+        let deviceName: String
+    }
+
+    static func pcmS16Mono16kChunk(from pcmBuffer: AVAudioPCMBuffer, debugContext: DebugChunkContext? = nil) -> Data? {
         let inputSampleRate = pcmBuffer.format.sampleRate
         let frameLength = Int(pcmBuffer.frameLength)
 
@@ -95,18 +106,22 @@ extension LoopbackCaptureService {
             return nil
         }
 
+        let inputSummary = "rate=\(inputSampleRate)Hz channels=\(pcmBuffer.format.channelCount) format=\(String(describing: pcmBuffer.format.commonFormat)) frames=\(frameLength)"
         let monoSamples: [Float]
+        let inputPreview: String
 
         switch pcmBuffer.format.commonFormat {
         case .pcmFormatFloat32:
             guard let channelData = pcmBuffer.floatChannelData else {
                 return nil
             }
+            inputPreview = debugFloatChannelPreview(from: channelData, channelCount: Int(pcmBuffer.format.channelCount), frameLength: frameLength)
             monoSamples = monoFloatSamples(from: channelData, channelCount: Int(pcmBuffer.format.channelCount), frameLength: frameLength)
         case .pcmFormatInt16:
             guard let channelData = pcmBuffer.int16ChannelData else {
                 return nil
             }
+            inputPreview = debugInt16ChannelPreview(from: channelData, channelCount: Int(pcmBuffer.format.channelCount), frameLength: frameLength)
             monoSamples = monoFloatSamples(from: channelData, channelCount: Int(pcmBuffer.format.channelCount), frameLength: frameLength)
         default:
             return nil
@@ -116,12 +131,143 @@ extension LoopbackCaptureService {
             return nil
         }
 
+        if let debugContext {
+            let preview = debugFloatPreview(for: monoSamples)
+            logStep(
+                5,
+                "monoFloatSamples",
+                chunkIndex: debugContext.chunkIndex,
+                deviceName: debugContext.deviceName,
+                message: "input=\(inputSummary) \(inputPreview) output=mono \(preview)"
+            )
+        }
+
         let outputSamples = resample(monoSamples, from: inputSampleRate, to: backendSampleRate)
         guard outputSamples.isEmpty == false else {
             return nil
         }
 
-        return int16LittleEndianData(from: outputSamples)
+        if let debugContext {
+            let preview = debugFloatPreview(for: outputSamples)
+            logStep(
+                6,
+                "resample",
+                chunkIndex: debugContext.chunkIndex,
+                deviceName: debugContext.deviceName,
+                message: "input=\(debugFloatPreview(for: monoSamples)) @\(inputSampleRate)Hz output=\(preview) @\(backendSampleRate)Hz outputCount=\(outputSamples.count)"
+            )
+        }
+
+        return int16LittleEndianData(from: outputSamples, debugContext: debugContext)
+    }
+
+    static func shouldLogPCMChunk(index: Int, source: AudioSource) -> Bool {
+        return index <= 5 || index.isMultiple(of: 50)
+    }
+
+    static func debugPCMPreview(for chunk: Data, maxSamples: Int = 8) -> String {
+        guard maxSamples > 0 else {
+            return "[]"
+        }
+
+        let samples = chunk.withUnsafeBytes { rawBuffer -> [Int16] in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                return []
+            }
+
+            let sampleCount = min(maxSamples, chunk.count / MemoryLayout<Int16>.size)
+            let typedBuffer = baseAddress.assumingMemoryBound(to: Int16.self)
+
+            return (0..<sampleCount).map { index in
+                Int16(littleEndian: typedBuffer[index])
+            }
+        }
+
+        return "[" + samples.map(String.init).joined(separator: ", ") + "]"
+    }
+
+    static func debugFloatPreview(for samples: [Float], maxSamples: Int = 8) -> String {
+        guard maxSamples > 0 else {
+            return "[]"
+        }
+
+        let preview = samples.prefix(maxSamples).map { sample in
+            String(format: "%.4f", sample)
+        }
+
+        return "[" + preview.joined(separator: ", ") + "]"
+    }
+
+    static func debugFloatChannelPreview(
+        from channelData: UnsafePointer<UnsafeMutablePointer<Float>>,
+        channelCount: Int,
+        frameLength: Int,
+        maxSamples: Int = 4
+    ) -> String {
+        guard channelCount > 0, frameLength > 0, maxSamples > 0 else {
+            return "channels=[]"
+        }
+
+        let sampleCount = min(frameLength, maxSamples)
+        let previews = (0..<channelCount).map { channel -> String in
+            let samples = (0..<sampleCount).map { index in
+                String(format: "%.4f", channelData[channel][index])
+            }
+            return "ch\(channel)=[" + samples.joined(separator: ", ") + "]"
+        }
+
+        return previews.joined(separator: " ")
+    }
+
+    static func debugPCMBufferPreview(_ buffer: AVAudioPCMBuffer, maxSamples: Int = 4) -> String {
+        let channelCount = Int(buffer.format.channelCount)
+        let frameLength = Int(buffer.frameLength)
+
+        switch buffer.format.commonFormat {
+        case .pcmFormatFloat32:
+            guard let channelData = buffer.floatChannelData else {
+                return "channels=[]"
+            }
+            return debugFloatChannelPreview(
+                from: channelData,
+                channelCount: channelCount,
+                frameLength: frameLength,
+                maxSamples: maxSamples
+            )
+        case .pcmFormatInt16:
+            guard let channelData = buffer.int16ChannelData else {
+                return "channels=[]"
+            }
+            return debugInt16ChannelPreview(
+                from: channelData,
+                channelCount: channelCount,
+                frameLength: frameLength,
+                maxSamples: maxSamples
+            )
+        default:
+            return "channels=[]"
+        }
+    }
+
+    static func debugInt16ChannelPreview(
+        from channelData: UnsafePointer<UnsafeMutablePointer<Int16>>,
+        channelCount: Int,
+        frameLength: Int,
+        maxSamples: Int = 4
+    ) -> String {
+        guard channelCount > 0, frameLength > 0, maxSamples > 0 else {
+            return "channels=[]"
+        }
+
+        let sampleCount = min(frameLength, maxSamples)
+        let previews = (0..<channelCount).map { channel -> String in
+            let samples = (0..<sampleCount).map { index in
+                String(channelData[channel][index])
+            }
+            return "ch\(channel)=[" + samples.joined(separator: ", ") + "]"
+        }
+
+        return previews.joined(separator: " ")
     }
 
     private static func monoFloatSamples(
@@ -191,16 +337,46 @@ extension LoopbackCaptureService {
         return output
     }
 
-    private static func int16LittleEndianData(from samples: [Float]) -> Data {
+    private static func int16LittleEndianData(from samples: [Float], debugContext: DebugChunkContext? = nil) -> Data {
         var data = Data(capacity: samples.count * MemoryLayout<Int16>.size)
+        var previewSamples: [Int16] = []
         for sample in samples {
             let clipped = min(max(sample, -1.0), 1.0)
             var value = Int16(clipped * Float(Int16.max)).littleEndian
+            if previewSamples.count < 8 {
+                previewSamples.append(Int16(littleEndian: value))
+            }
             withUnsafeBytes(of: &value) { bytes in
                 data.append(contentsOf: bytes)
             }
         }
+
+        if let debugContext {
+            let preview = "[" + previewSamples.map(String.init).joined(separator: ", ") + "]"
+            logStep(
+                7,
+                "int16LittleEndianData",
+                chunkIndex: debugContext.chunkIndex,
+                deviceName: debugContext.deviceName,
+                message: "input=\(debugFloatPreview(for: samples)) output=bytes=\(data.count) samples=\(preview)"
+            )
+        }
+
         return data
+    }
+
+    static func logStep(
+        _ step: Int,
+        _ functionName: String,
+        chunkIndex: Int,
+        deviceName: String,
+        message: String
+    ) {
+        emitConsoleLine("BLACKHOLE_DEBUG: [Step \(step)] chunk #\(chunkIndex) \(functionName) device=\(deviceName) \(message)")
+    }
+
+    static func emitConsoleLine(_ line: String) {
+        print(line)
     }
 }
 
@@ -250,6 +426,17 @@ private extension LoopbackCaptureService {
             return matchedDevice
         }
 
+        let catalog = AudioDeviceCatalog(
+            devices: discoverySession.devices.map { device in
+                AudioInputDevice(id: device.uniqueID, name: device.localizedName, isInput: true)
+            }
+        )
+
+        if let preferredDeviceID = catalog.preferredInputDevice(for: source)?.id,
+           let preferredDevice = discoverySession.devices.first(where: { $0.uniqueID == preferredDeviceID }) {
+            return preferredDevice
+        }
+
         guard let fallbackDevice = discoverySession.devices.first else {
             throw LoopbackCaptureError.deviceNotFound
         }
@@ -258,13 +445,57 @@ private extension LoopbackCaptureService {
     }
 
     func handleSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+        loggedPCMChunkCount += 1
+
+        if let debugContext = currentDebugContext {
+            Self.logStep(
+                1,
+                "handleSampleBuffer",
+                chunkIndex: debugContext.chunkIndex,
+                deviceName: debugContext.deviceName,
+                message: "input=CMSampleBuffer source=\(self.source.rawValue) output=begin processing"
+            )
+        }
+
         if let snapshot = Self.levelSnapshot(from: sampleBuffer) {
+            if let debugContext = currentDebugContext {
+                Self.logStep(
+                    1,
+                    "levelSnapshot",
+                    chunkIndex: debugContext.chunkIndex,
+                    deviceName: debugContext.deviceName,
+                    message: "input=CMSampleBuffer output=average=\(snapshot.averagePower) peak=\(snapshot.peakPower) detectedSound=\(snapshot.detectedSound)"
+                )
+            }
             publish(level: snapshot)
         }
 
-        if let chunk = Self.pcmChunk(from: sampleBuffer) {
+        if let chunk = Self.pcmChunk(from: sampleBuffer, debugContext: currentDebugContext) {
+            logPCMChunkIfNeeded(chunk)
             onPCMChunk?(chunk)
         }
+    }
+
+    func logPCMChunkIfNeeded(_ chunk: Data) {
+        guard let debugContext = currentDebugContext else {
+            return
+        }
+
+        Self.logStep(
+            8,
+            "socket payload",
+            chunkIndex: debugContext.chunkIndex,
+            deviceName: debugContext.deviceName,
+            message: "input=Data bytes=\(chunk.count) samples=\(Self.debugPCMPreview(for: chunk)) output=forward to onPCMChunk/socket"
+        )
+    }
+
+    var currentDebugContext: DebugChunkContext? {
+        guard Self.shouldLogPCMChunk(index: loggedPCMChunkCount, source: source) else {
+            return nil
+        }
+
+        return DebugChunkContext(chunkIndex: loggedPCMChunkCount, deviceName: activeDeviceName)
     }
 
     func publish(level: AudioLevelSnapshot) {
@@ -298,11 +529,43 @@ private extension LoopbackCaptureService {
     }
 
     static func pcmChunk(from sampleBuffer: CMSampleBuffer) -> Data? {
+        pcmChunk(from: sampleBuffer, debugContext: nil)
+    }
+
+    static func pcmChunk(from sampleBuffer: CMSampleBuffer, debugContext: DebugChunkContext?) -> Data? {
+        if let debugContext {
+            logStep(
+                2,
+                "pcmChunk",
+                chunkIndex: debugContext.chunkIndex,
+                deviceName: debugContext.deviceName,
+                message: "input=CMSampleBuffer output=attempt AVAudioPCMBuffer conversion"
+            )
+        }
+
         guard let pcmBuffer = pcmBuffer(from: sampleBuffer) else {
             return nil
         }
 
-        return pcmS16Mono16kChunk(from: pcmBuffer)
+        if let debugContext {
+            let pcmPreview = debugPCMBufferPreview(pcmBuffer)
+            logStep(
+                3,
+                "pcmBuffer",
+                chunkIndex: debugContext.chunkIndex,
+                deviceName: debugContext.deviceName,
+                message: "input=CMSampleBuffer output=AVAudioPCMBuffer rate=\(pcmBuffer.format.sampleRate)Hz channels=\(pcmBuffer.format.channelCount) format=\(String(describing: pcmBuffer.format.commonFormat)) frames=\(pcmBuffer.frameLength) values=\(pcmPreview)"
+            )
+            logStep(
+                4,
+                "pcmS16Mono16kChunk",
+                chunkIndex: debugContext.chunkIndex,
+                deviceName: debugContext.deviceName,
+                message: "input=AVAudioPCMBuffer values=\(pcmPreview) output=target mono/int16/\(backendSampleRate)Hz"
+            )
+        }
+
+        return pcmS16Mono16kChunk(from: pcmBuffer, debugContext: debugContext)
     }
 
     static func pcmBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {

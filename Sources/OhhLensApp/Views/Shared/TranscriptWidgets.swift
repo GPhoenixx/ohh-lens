@@ -14,6 +14,16 @@ enum LiveCaptionAutoScrollTrigger {
     }
 }
 
+enum LiveStatusBadgeState {
+    static func text(isListening: Bool) -> String {
+        isListening ? "LIVE" : "OFFLINE"
+    }
+
+    static func isAnimated(isListening: Bool) -> Bool {
+        isListening
+    }
+}
+
 @MainActor
 struct TranscriptFooterBindings {
     let sourceLanguage: Binding<String>
@@ -51,12 +61,13 @@ func makeTranscriptFooterBindings(for appStore: AppStore) -> TranscriptFooterBin
 
 struct TranscriptScreenHeader: View {
     let title: String
-    let effectiveCaptureMode: EffectiveCaptureMode
-    let isListening: Bool
+    let headerPillState: AppStore.HeaderPillState?
     let isPiPVisible: Bool
     let availableLoopbackDevices: [AudioInputDevice]
     @Binding var selectedLoopbackDeviceID: String?
+    let showsLoopbackDevicePicker: Bool
     let onTogglePiP: () -> Void
+    let onHeaderPillTap: @MainActor () async -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -94,9 +105,7 @@ struct TranscriptScreenHeader: View {
 
     @ViewBuilder
     private var headerMiddleControl: some View {
-        let displayCopy = effectiveCaptureMode.displayCopy
-
-        if displayCopy.showsLoopbackDevicePicker {
+        if showsLoopbackDevicePicker {
             CompactSelectionField(
                 title: "Loopback Device",
                 selection: Binding(
@@ -106,8 +115,12 @@ struct TranscriptScreenHeader: View {
                 options: availableLoopbackDevices.map(\.id),
                 label: loopbackName(for:)
             )
-        } else if let headerPillText = displayCopy.headerPillText(isListening: isListening) {
-            MissingLoopbackPill(text: headerPillText)
+        } else if let headerPillState {
+            MissingLoopbackPill(
+                text: headerPillState.text,
+                isInteractive: headerPillState.isInteractive,
+                onTap: onHeaderPillTap
+            )
         }
     }
 
@@ -170,15 +183,7 @@ struct LiveCaptionViewport: View {
 
                 Spacer()
 
-                Text(isListening ? "LIVE" : "OFFLINE")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(isListening ? AppTheme.ColorToken.accent : AppTheme.ColorToken.textMuted)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(isListening ? AppTheme.ColorToken.accent.opacity(0.12) : AppTheme.ColorToken.hoverFill)
-                    )
+                LiveStatusBadge(isListening: isListening)
             }
 
             if visibleCaptionLines.isEmpty {
@@ -243,6 +248,46 @@ struct LiveCaptionViewport: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct LiveStatusBadge: View {
+    let isListening: Bool
+
+    var body: some View {
+        let isAnimated = LiveStatusBadgeState.isAnimated(isListening: isListening)
+
+        HStack(spacing: 8) {
+            if isAnimated {
+                ActivityWaveformGlyph()
+                    .frame(width: 20, height: 12)
+                    .transition(.scale(scale: 0.82).combined(with: .opacity))
+            }
+
+            Text(LiveStatusBadgeState.text(isListening: isListening))
+                .font(.system(size: 11, weight: .bold))
+                .tracking(0.3)
+                .foregroundStyle(isAnimated ? AppTheme.ColorToken.accent : AppTheme.ColorToken.textMuted)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(isAnimated ? AppTheme.ColorToken.accent.opacity(0.12) : AppTheme.ColorToken.hoverFill)
+        )
+        .overlay {
+            Capsule()
+                .strokeBorder(
+                    isAnimated ? AppTheme.ColorToken.accent.opacity(0.24) : .clear,
+                    lineWidth: 1
+                )
+        }
+        .shadow(
+            color: isAnimated ? AppTheme.ColorToken.accent.opacity(0.14) : .clear,
+            radius: 10,
+            y: 0
+        )
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: isAnimated)
     }
 }
 
@@ -484,21 +529,61 @@ func selectionFieldLabel(text: String, minWidth: CGFloat = 150) -> some View {
 
 private struct MissingLoopbackPill: View {
     let text: String
+    let isInteractive: Bool
+    let onTap: @MainActor () async -> Void
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(AppTheme.ColorToken.textMuted)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.Layout.controlCornerRadius, style: .continuous)
-                    .fill(AppTheme.ColorToken.controlFill)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: AppTheme.Layout.controlCornerRadius, style: .continuous)
-                    .strokeBorder(AppTheme.ColorToken.border, lineWidth: 1)
+        Button {
+            Task { await onTap() }
+        } label: {
+            Text(text)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(isInteractive ? AppTheme.ColorToken.textPrimary : AppTheme.ColorToken.textMuted)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: AppTheme.Layout.controlCornerRadius, style: .continuous)
+                        .fill(isInteractive ? AppTheme.ColorToken.hoverFill : AppTheme.ColorToken.controlFill)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: AppTheme.Layout.controlCornerRadius, style: .continuous)
+                        .strokeBorder(AppTheme.ColorToken.border, lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(isInteractive == false)
+    }
+}
+
+private struct ActivityWaveformGlyph: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: reduceMotion ? 1 : 0.12, paused: false)) { context in
+            let time = context.date.timeIntervalSinceReferenceDate
+
+            HStack(alignment: .center, spacing: 3) {
+                ForEach(0..<4, id: \.self) { index in
+                    Capsule(style: .continuous)
+                        .fill(AppTheme.ColorToken.accent)
+                        .frame(width: 3, height: barHeight(for: index, time: time))
+                }
             }
+            .frame(width: 24, height: 14, alignment: .center)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func barHeight(for index: Int, time: TimeInterval) -> CGFloat {
+        guard reduceMotion == false else {
+            return [6.0, 10.0, 8.0, 12.0][index]
+        }
+
+        let phaseOffsets = [0.0, 0.9, 1.8, 2.7]
+        let phase = (time * 6.4) + phaseOffsets[index]
+        let amplitude = (sin(phase) + 1) * 0.5
+
+        return 5 + (amplitude * 9)
     }
 }
 

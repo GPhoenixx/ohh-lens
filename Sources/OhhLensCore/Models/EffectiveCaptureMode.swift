@@ -25,6 +25,18 @@ public enum EffectiveCaptureMode: String, Codable, Equatable {
         public func headerPillText(isListening: Bool) -> String? {
             isListening ? activeHeaderPillText : readyHeaderPillText
         }
+
+        public func showsAnimatedHeaderPill(isListening: Bool) -> Bool {
+            guard isListening else {
+                return false
+            }
+
+            guard let activeHeaderPillText, let readyHeaderPillText else {
+                return false
+            }
+
+            return activeHeaderPillText != readyHeaderPillText
+        }
     }
 
     case microphone

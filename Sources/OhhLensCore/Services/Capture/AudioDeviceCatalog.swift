@@ -51,4 +51,20 @@ public struct AudioDeviceCatalog {
                 || lowercasedName.contains("soundflower")
         }
     }
+
+    public func preferredInputDevice(for source: AudioSource) -> AudioInputDevice? {
+        let inputDevices = allInputDevices()
+        guard inputDevices.isEmpty == false else {
+            return nil
+        }
+
+        let loopbackDeviceIDs = Set(loopbackInputDevices().map(\.id))
+
+        switch source {
+        case .microphone, .importedFile:
+            return inputDevices.first(where: { loopbackDeviceIDs.contains($0.id) == false }) ?? inputDevices.first
+        case .systemAudio, .appAudio:
+            return inputDevices.first(where: { loopbackDeviceIDs.contains($0.id) }) ?? inputDevices.first
+        }
+    }
 }

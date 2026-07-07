@@ -10,12 +10,13 @@ struct LiveView: View {
         VStack(alignment: .leading, spacing: 20) {
             TranscriptScreenHeader(
                 title: "Live Subtitles",
-                effectiveCaptureMode: appStore.effectiveCaptureMode,
-                isListening: appStore.isListening,
+                headerPillState: appStore.headerPillState,
                 isPiPVisible: appStore.pipState.isVisible,
                 availableLoopbackDevices: appStore.availableLoopbackDevices,
                 selectedLoopbackDeviceID: $appStore.selectedLoopbackDeviceID,
-                onTogglePiP: appStore.togglePiP
+                showsLoopbackDevicePicker: appStore.effectiveCaptureMode.displayCopy.showsLoopbackDevicePicker,
+                onTogglePiP: appStore.togglePiP,
+                onHeaderPillTap: appStore.handleHeaderPillAction
             )
 
             TranscriptPanel {

@@ -1,5 +1,6 @@
 .build/
 .cache/
+.derivedData
 .home/
 .swiftpm/
 .worktrees/
@@ -10,3 +11,4 @@
 **/__pycache__/
 **/*.egg-info/
 backend/ohh-lens-speech-server/.modelscope-cache/
+.derivedDataLocal

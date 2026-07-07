@@ -17,8 +17,23 @@ struct SetupView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     settingsGroup(title: "Audio & Transcription Model") {
                         settingsRow(
+                            title: "Audio Source",
+                            detail: appStore.selectedSource.displayDescription
+                        ) {
+                            Picker("Audio Source", selection: $appStore.selectedSource) {
+                                ForEach(liveCaptureSources, id: \.self) { source in
+                                    Text(source.displayTitle)
+                                        .tag(source)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .frame(alignment: .leading)
+                        }
+
+                        settingsRow(
                             title: "Loopback Device",
-                            detail: "Virtual devices enable true routed System Audio and App Audio capture. Without one, System Audio falls back to Live Audio through the microphone."
+                            detail: loopbackDeviceDetail(for: appStore.selectedSource)
                         ) {
                             HStack(spacing: 8) {
                                 Picker(
@@ -36,6 +51,7 @@ struct SetupView: View {
                                 .pickerStyle(.menu)
                                 .labelsHidden()
                                 .frame(alignment: .leading)
+                                .disabled(appStore.selectedSource == .microphone)
 
                                 Button("Scan System") {
                                     appStore.refreshLoopbackDevices()
@@ -217,6 +233,23 @@ struct SetupView: View {
             (.green, AppTheme.accentColor(for: .green)),
             (.graphite, AppTheme.accentColor(for: .graphite))
         ]
+    }
+
+    private var liveCaptureSources: [AudioSource] {
+        [.microphone, .systemAudio, .appAudio]
+    }
+
+    private func loopbackDeviceDetail(for source: AudioSource) -> String {
+        switch source {
+        case .microphone:
+            return "Not needed for direct microphone capture. The picker stays available here so you can inspect detected virtual devices."
+        case .systemAudio:
+            return "Virtual devices enable routed system audio. Without one, System Audio falls back to Live Audio through the microphone."
+        case .appAudio:
+            return "Required to isolate audio from a single app."
+        case .importedFile:
+            return "Not used for file-based transcription."
+        }
     }
 }
 

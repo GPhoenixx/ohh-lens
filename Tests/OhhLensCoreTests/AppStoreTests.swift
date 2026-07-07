@@ -185,7 +185,147 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(copy.liveIdleMessage, "Press Start Listening to capture live audio through your microphone.")
         XCTAssertEqual(copy.headerPillText(isListening: false), "Live Audio Ready")
         XCTAssertEqual(copy.headerPillText(isListening: true), "Live Audio")
+        XCTAssertFalse(copy.showsAnimatedHeaderPill(isListening: false))
+        XCTAssertTrue(copy.showsAnimatedHeaderPill(isListening: true))
         XCTAssertEqual(store.liveIdleMessage, copy.liveIdleMessage)
+    }
+
+    @MainActor
+    func test_appAudioRequiresLoopbackKeepsHeaderPillStatic() {
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            audioCaptureServiceFactory: { _, _ in TestAudioCaptureService(source: .appAudio) },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.selectedSource = .appAudio
+
+        let copy = store.effectiveCaptureMode.displayCopy
+
+        XCTAssertEqual(copy.headerPillText(isListening: false), "App Audio Needs Loopback")
+        XCTAssertEqual(copy.headerPillText(isListening: true), "App Audio Needs Loopback")
+        XCTAssertFalse(copy.showsAnimatedHeaderPill(isListening: false))
+        XCTAssertFalse(copy.showsAnimatedHeaderPill(isListening: true))
+    }
+
+    @MainActor
+    func test_headerPillPromptsForMicrophonePermissionWhenUndetermined() {
+        let permissionsService = TestPermissionsService(snapshot: .init(microphonePermission: .notDetermined))
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            permissionsService: permissionsService,
+            audioCaptureServiceFactory: { _, _ in TestAudioCaptureService(source: .microphone) },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.selectedSource = .microphone
+
+        XCTAssertEqual(store.headerPillState?.text, "Allow Microphone")
+        XCTAssertEqual(store.headerPillState?.action, .requestPermission)
+    }
+
+    @MainActor
+    func test_tappingDeniedMicrophonePillOpensSettings() async {
+        let permissionsService = TestPermissionsService(snapshot: .init(microphonePermission: .denied))
+        var openedSettings = false
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            permissionsService: permissionsService,
+            openMicrophoneSettings: { openedSettings = true },
+            audioCaptureServiceFactory: { _, _ in TestAudioCaptureService(source: .microphone) },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.selectedSource = .microphone
+        await store.handleHeaderPillAction()
+
+        XCTAssertTrue(openedSettings)
+        XCTAssertEqual(store.headerPillState?.text, "Open Microphone Settings")
+        XCTAssertEqual(store.headerPillState?.action, .openSettings)
+    }
+
+    @MainActor
+    func test_tappingUndeterminedMicrophonePillRequestsAccessAndRefreshesState() async {
+        let permissionsService = TestPermissionsService(snapshot: .init(microphonePermission: .notDetermined))
+        permissionsService.requestResult = true
+
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            permissionsService: permissionsService,
+            audioCaptureServiceFactory: { _, _ in TestAudioCaptureService(source: .microphone) },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.selectedSource = .microphone
+        await store.handleHeaderPillAction()
+
+        XCTAssertEqual(permissionsService.requestCallCount, 1)
+        XCTAssertEqual(store.headerPillState?.text, "Microphone Ready")
+        XCTAssertEqual(store.headerPillState?.action, AppStore.HeaderPillState.Action.none)
+    }
+
+    @MainActor
+    func test_startListeningRequestsMicrophonePermissionWhenUndetermined() async {
+        let permissionsService = TestPermissionsService(snapshot: .init(microphonePermission: .notDetermined))
+        permissionsService.requestResult = true
+        let captureService = TestAudioCaptureService(source: .microphone)
+        var requestedSource: AudioSource?
+
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            permissionsService: permissionsService,
+            audioCaptureServiceFactory: { source, _ in
+                requestedSource = source
+                return captureService
+            },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.selectedSource = .microphone
+        defer { store.stopListening() }
+        store.startListening()
+
+        for _ in 0..<20 {
+            if permissionsService.requestCallCount == 1, requestedSource == .microphone, store.isListening {
+                break
+            }
+            await Task.yield()
+        }
+
+        XCTAssertEqual(permissionsService.requestCallCount, 1)
+        XCTAssertEqual(requestedSource, .microphone)
+        XCTAssertTrue(store.isListening)
+        XCTAssertEqual(store.headerPillState?.action, AppStore.HeaderPillState.Action.none)
+    }
+
+    @MainActor
+    func test_startListeningStopsAndExplainsDeniedMicrophonePermission() {
+        let permissionsService = TestPermissionsService(snapshot: .init(microphonePermission: .denied))
+        var factoryCallCount = 0
+
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            permissionsService: permissionsService,
+            audioCaptureServiceFactory: { _, _ in
+                factoryCallCount += 1
+                return TestAudioCaptureService(source: .microphone)
+            },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.selectedSource = .microphone
+        store.startListening()
+
+        XCTAssertEqual(permissionsService.requestCallCount, 0)
+        XCTAssertEqual(factoryCallCount, 0)
+        XCTAssertFalse(store.isListening)
+        XCTAssertEqual(store.statusText, "Microphone access needed")
     }
 
     @MainActor
@@ -411,6 +551,14 @@ final class AppStoreTests: XCTestCase {
                 to: ["The first line", "The second line"]
             )
         )
+    }
+
+    @MainActor
+    func test_liveStatusBadgeOnlyAnimatesWhileListening() {
+        XCTAssertEqual(LiveStatusBadgeState.text(isListening: false), "OFFLINE")
+        XCTAssertFalse(LiveStatusBadgeState.isAnimated(isListening: false))
+        XCTAssertEqual(LiveStatusBadgeState.text(isListening: true), "LIVE")
+        XCTAssertTrue(LiveStatusBadgeState.isAnimated(isListening: true))
     }
 
     @MainActor
@@ -725,6 +873,26 @@ private final class TestAudioCaptureService: AudioCaptureServicing, @unchecked S
 
     func receiveTestPCMChunk(_ data: Data) {
         onPCMChunk?(data)
+    }
+}
+
+private final class TestPermissionsService: PermissionsServicing, @unchecked Sendable {
+    var snapshot: PermissionsSnapshot
+    var requestResult = false
+    var requestCallCount = 0
+
+    init(snapshot: PermissionsSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    func currentSnapshot() -> PermissionsSnapshot {
+        snapshot
+    }
+
+    func requestMicrophoneAccess() async -> Bool {
+        requestCallCount += 1
+        snapshot = .init(microphonePermission: requestResult ? .granted : .denied)
+        return requestResult
     }
 }
 
