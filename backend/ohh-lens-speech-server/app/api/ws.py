@@ -10,6 +10,10 @@ from app.core.session_manager import SessionManager
 from app.funasr.adapter import StreamingAdapter
 
 
+def _is_post_disconnect_receive_error(error: RuntimeError) -> bool:
+    return "disconnect message has been received" in str(error).lower()
+
+
 def build_ws_router(
     session_manager: SessionManager, adapter: StreamingAdapter
 ) -> APIRouter:
@@ -79,6 +83,10 @@ def build_ws_router(
                         return
         except WebSocketDisconnect:
             return
+        except RuntimeError as error:
+            if _is_post_disconnect_receive_error(error):
+                return
+            raise
         finally:
             if session_id is not None:
                 session_manager.cleanup_session(session_id)

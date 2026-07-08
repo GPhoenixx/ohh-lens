@@ -14,8 +14,16 @@ public final class AppStore {
             case openSettings
         }
 
+        public enum Tone: Equatable {
+            case neutral
+            case accent
+            case warning
+        }
+
         public let text: String
         public let action: Action
+        public let tone: Tone
+        public let symbolName: String?
 
         public var isInteractive: Bool {
             action != .none
@@ -63,7 +71,15 @@ public final class AppStore {
         effectiveCaptureMode.displayCopy.liveIdleMessage
     }
     public var headerPillState: HeaderPillState? {
-        headerPillState(for: effectiveCaptureMode, isListening: isListening)
+        makeHeaderPillState()
+    }
+    public var showsHeaderLoopbackPicker: Bool {
+        switch selectedSource {
+        case .microphone, .importedFile:
+            false
+        case .systemAudio, .appAudio:
+            true
+        }
     }
 
     @MainActor
@@ -658,34 +674,30 @@ public final class AppStore {
         currentSession = nil
     }
 
-    private func headerPillState(
-        for mode: EffectiveCaptureMode,
-        isListening: Bool
-    ) -> HeaderPillState? {
-        let displayCopy = mode.displayCopy
-
-        guard displayCopy.showsLoopbackDevicePicker == false else {
-            return nil
+    private func makeHeaderPillState() -> HeaderPillState? {
+        switch permissionsSnapshot.microphonePermission {
+        case .notDetermined:
+            return HeaderPillState(
+                text: "Allow Microphone",
+                action: .requestPermission,
+                tone: .accent,
+                symbolName: "mic.badge.plus"
+            )
+        case .denied, .restricted:
+            return HeaderPillState(
+                text: "Open Microphone Settings",
+                action: .openSettings,
+                tone: .warning,
+                symbolName: "exclamationmark.triangle.fill"
+            )
+        case .granted:
+            return HeaderPillState(
+                text: "Microphone Ready",
+                action: .none,
+                tone: .neutral,
+                symbolName: "mic.fill"
+            )
         }
-
-        let usesMicrophone = mode == .microphone || mode == .systemAudioFallbackMicrophone
-
-        if usesMicrophone, isListening == false {
-            switch permissionsSnapshot.microphonePermission {
-            case .notDetermined:
-                return HeaderPillState(text: "Allow Microphone", action: .requestPermission)
-            case .denied, .restricted:
-                return HeaderPillState(text: "Open Microphone Settings", action: .openSettings)
-            case .granted:
-                break
-            }
-        }
-
-        guard let text = displayCopy.headerPillText(isListening: isListening) else {
-            return nil
-        }
-
-        return HeaderPillState(text: text, action: .none)
     }
 
     private func microphonePermissionMessage() -> String {

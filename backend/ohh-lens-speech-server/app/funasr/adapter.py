@@ -9,6 +9,17 @@ from app.funasr.models import StreamingResult
 
 
 logger = logging.getLogger(__name__)
+PARTIAL_FILLER_WORDS = {
+    "ah",
+    "er",
+    "erm",
+    "hmm",
+    "mm",
+    "oh",
+    "uh",
+    "um",
+    "yeah",
+}
 
 
 class StreamingAdapter(Protocol):
@@ -54,6 +65,7 @@ class FunASRStreamingAdapter:
         asr_chunk_size: list[int] | None = None,
         encoder_chunk_look_back: int = 4,
         decoder_chunk_look_back: int = 1,
+        min_audio_rms: float = 0.0,
     ) -> None:
         self.model_name = model_name
         self.device = device
@@ -64,6 +76,7 @@ class FunASRStreamingAdapter:
         self.asr_chunk_size = asr_chunk_size or [0, 10, 5]
         self.encoder_chunk_look_back = encoder_chunk_look_back
         self.decoder_chunk_look_back = decoder_chunk_look_back
+        self.min_audio_rms = min_audio_rms
         self._model = None
         self._vad_model = None
         self._sessions: dict[str, StreamingSessionState] = {}
@@ -75,6 +88,8 @@ class FunASRStreamingAdapter:
             raise ValueError("FUNASR_DEVICE is required")
         if self.vad_chunk_ms <= 0:
             raise ValueError("FUNASR_VAD_CHUNK_MS must be positive")
+        if self.min_audio_rms < 0:
+            raise ValueError("FUNASR_MIN_AUDIO_RMS must be non-negative")
         self._validate_optional_runtime_dependencies()
 
         from funasr import AutoModel
@@ -85,6 +100,8 @@ class FunASRStreamingAdapter:
         }
         if self.hub:
             model_kwargs["hub"] = self.hub
+        if self._requires_trust_remote_code():
+            model_kwargs["trust_remote_code"] = True
         logger.info(
             "Loading FunASR ASR model model=%s hub=%s device=%s",
             self.model_name,
@@ -119,6 +136,14 @@ class FunASRStreamingAdapter:
         normalized_model_name = self.model_name.lower()
         return "qwen" in normalized_model_name and "asr" in normalized_model_name
 
+    def _requires_trust_remote_code(self) -> bool:
+        normalized_model_name = self.model_name.lower()
+        return "fun-asr" in normalized_model_name
+
+    def _requires_torch_audio_input(self) -> bool:
+        normalized_model_name = self.model_name.lower()
+        return "fun-asr" in normalized_model_name
+
     def begin(self, session_id: str, language: str = "auto") -> None:
         self._sessions[session_id] = StreamingSessionState(language=language)
 
@@ -145,6 +170,20 @@ class FunASRStreamingAdapter:
 
         audio = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
 
+        # TODO: Uncomment this when we want to filter minimum audio RMS
+        # if self._audio_rms(audio) < self.min_audio_rms:
+        #     if is_final and session.asr_started:
+        #         return self._generate_asr_results(
+        #             session_id,
+        #             empty_audio,
+        #             session,
+        #             is_final=True,
+        #         )
+        #     print("Skipping audio because it's too quiet")
+            
+            
+        #     return []
+
         if self._vad_model is not None and not self._chunk_contains_speech(
             audio,
             session,
@@ -168,8 +207,15 @@ class FunASRStreamingAdapter:
         session: "StreamingSessionState",
         is_final: bool,
     ) -> list[StreamingResult]:
+        if self._requires_torch_audio_input():
+            import torch
+
+            model_input: object = torch.from_numpy(audio)
+        else:
+            model_input = audio
+
         raw_result = self._model.generate(
-            input=audio,
+            input=model_input,
             cache=session.cache,
             is_final=is_final,
             language=session.language,
@@ -180,6 +226,14 @@ class FunASRStreamingAdapter:
         )
         session.asr_started = True
         return self._coerce_results(raw_result)
+
+    @staticmethod
+    def _audio_rms(audio: "np.ndarray") -> float:
+        if len(audio) == 0:
+            return 0.0
+        import numpy as np
+
+        return float(np.sqrt(np.mean(audio * audio)))
 
     def _chunk_contains_speech(
         self,
@@ -264,12 +318,13 @@ class FunASRStreamingAdapter:
         results: list[StreamingResult] = []
         for item in items:
             text = self._clean_text(item.get("text", ""))
-            if not text:
+            is_final = bool(item.get("is_final", False))
+            if not text or self._is_suppressed_partial(text, is_final):
                 continue
             results.append(
                 StreamingResult(
                     text=text,
-                    is_final=bool(item.get("is_final", False)),
+                    is_final=is_final,
                     start_ms=int(item.get("start_ms", 0) or 0),
                     end_ms=int(item.get("end_ms", 0) or 0),
                 )
@@ -277,15 +332,26 @@ class FunASRStreamingAdapter:
         return results
 
     @staticmethod
+    def _is_suppressed_partial(text: str, is_final: bool) -> bool:
+        if is_final:
+            return False
+
+        words = text.split()
+        return bool(words) and all(word in PARTIAL_FILLER_WORDS for word in words)
+
+    @staticmethod
     def _clean_text(value: object) -> str:
         text = re.sub(r"<\|[^|]*\|>", "", str(value))
+        keep = {"'", "+", "-"}
         text = "".join(
             character
             for character in text
-            if not unicodedata.category(character).startswith(("P", "S"))
+            if (
+                character in keep
+                or not unicodedata.category(character).startswith(("P", "S"))
+            )
         )
         return " ".join(text.split()).lower()
-
 
 @dataclass
 class StreamingSessionState:

@@ -23,6 +23,7 @@ class Settings(BaseModel):
     funasr_asr_chunk_size: list[int] = [0, 10, 5]
     funasr_encoder_chunk_look_back: int = 4
     funasr_decoder_chunk_look_back: int = 1
+    funasr_min_audio_rms: float = 0.0
 
 
 def get_settings() -> Settings:
@@ -39,4 +40,5 @@ def get_settings() -> Settings:
         funasr_decoder_chunk_look_back=int(
             os.getenv("FUNASR_DECODER_CHUNK_LOOK_BACK", "1")
         ),
+        funasr_min_audio_rms=float(os.getenv("FUNASR_MIN_AUDIO_RMS", "0.0")),
     )

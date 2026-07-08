@@ -1,5 +1,8 @@
+import asyncio
+
 from fastapi.testclient import TestClient
 
+from app.api.ws import build_ws_router
 from app.core.protocol import StartMessage
 from app.core.session_manager import SessionManager
 from app.funasr.adapter import FakeStreamingAdapter
@@ -46,6 +49,26 @@ class BrokenAudioAdapter:
 
     def end(self, session_id: str) -> None:
         return None
+
+
+class CleanupCapturingAdapter:
+    def __init__(self) -> None:
+        self.ended_sessions: list[str] = []
+
+    def load(self) -> None:
+        return None
+
+    def ready(self) -> bool:
+        return True
+
+    def begin(self, session_id: str, language: str = "auto") -> None:
+        return None
+
+    def push_audio(self, session_id: str, chunk: bytes, is_final: bool) -> list:
+        return []
+
+    def end(self, session_id: str) -> None:
+        self.ended_sessions.append(session_id)
 
 
 def test_session_manager_buffers_short_audio_before_emitting_subtitle_events():
@@ -275,3 +298,51 @@ def test_ws_transcribe_returns_structured_error_when_audio_processing_fails():
 
         assert error_event["type"] == "error"
         assert "bad audio chunk" in error_event["message"]
+
+
+def test_ws_transcribe_treats_post_disconnect_receive_runtime_as_normal_close(
+):
+    adapter = CleanupCapturingAdapter()
+    router = build_ws_router(SessionManager(adapter=adapter), adapter)
+    endpoint = next(
+        route.endpoint
+        for route in router.routes
+        if getattr(route, "path", None) == "/ws/transcribe"
+    )
+
+    class FakeWebSocket:
+        def __init__(self) -> None:
+            self.accepted = False
+            self.sent_messages: list[dict] = []
+            self.receive_calls = 0
+
+        async def accept(self) -> None:
+            self.accepted = True
+
+        async def receive(self) -> dict:
+            self.receive_calls += 1
+            if self.receive_calls == 1:
+                return {
+                    "text": (
+                        '{"type":"start","session_id":"session-disconnect",'
+                        '"sample_rate":16000,"channels":1,'
+                        '"sample_format":"pcm_s16le","language":"auto"}'
+                    )
+                }
+            raise RuntimeError(
+                'Cannot call "receive" once a disconnect message has been received.'
+            )
+
+        async def send_json(self, payload: dict) -> None:
+            self.sent_messages.append(payload)
+
+        async def close(self) -> None:
+            return None
+
+    websocket = FakeWebSocket()
+
+    asyncio.run(endpoint(websocket))
+
+    assert websocket.accepted is True
+    assert websocket.sent_messages == [{"type": "ready", "session_id": "session-disconnect"}]
+    assert adapter.ended_sessions == ["session-disconnect"]

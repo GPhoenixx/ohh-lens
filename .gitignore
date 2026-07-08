@@ -12,3 +12,5 @@
 **/*.egg-info/
 backend/ohh-lens-speech-server/.modelscope-cache/
 .derivedDataLocal
+OhhLens.xcodeproj/xcuserdata/
+OhhLens.xcodeproj/project.xcworkspace/xcuserdata/

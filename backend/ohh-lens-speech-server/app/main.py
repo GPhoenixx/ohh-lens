@@ -44,6 +44,7 @@ def _create_app(
         asr_chunk_size=settings.funasr_asr_chunk_size,
         encoder_chunk_look_back=settings.funasr_encoder_chunk_look_back,
         decoder_chunk_look_back=settings.funasr_decoder_chunk_look_back,
+        min_audio_rms=settings.funasr_min_audio_rms,
     )
     session_manager = SessionManager(
         adapter=active_adapter,

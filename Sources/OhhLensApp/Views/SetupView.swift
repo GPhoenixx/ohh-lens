@@ -15,6 +15,45 @@ struct SetupView: View {
                     .foregroundStyle(AppTheme.ColorToken.textPrimary)
 
                 VStack(alignment: .leading, spacing: 20) {
+                    settingsGroup(title: "Live Controls") {
+                        settingsRow(
+                            title: "Microphone Access",
+                            detail: microphoneStatusDetail(for: appStore.headerPillState)
+                        ) {
+                            if let headerPillState = appStore.headerPillState {
+                                MissingLoopbackPill(
+                                    text: headerPillState.text,
+                                    tone: headerPillState.tone,
+                                    symbolName: headerPillState.symbolName,
+                                    isInteractive: headerPillState.isInteractive,
+                                    onTap: appStore.handleHeaderPillAction
+                                )
+                            }
+                        }
+
+                        settingsRow(
+                            title: "Picture in Picture",
+                            detail: appStore.pipState.isVisible
+                                ? "The overlay window is visible and ready to float above other apps."
+                                : "Open the overlay window when you want subtitles to stay visible while you work."
+                        ) {
+                            Button {
+                                appStore.togglePiP()
+                            } label: {
+                                Label(
+                                    appStore.pipState.isVisible ? "Hide PiP" : "Open PiP",
+                                    systemImage: appStore.pipState.isVisible ? "pip.exit" : "pip.enter"
+                                )
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(AppTheme.ColorToken.textPrimary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                                .background(controlBackground)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
                     settingsGroup(title: "Audio & Transcription Model") {
                         settingsRow(
                             title: "Audio Source",
@@ -147,7 +186,7 @@ struct SetupView: View {
 
                         statusLine(title: "Backend service", detail: appStore.backendStatusText)
                         statusLine(title: "Diagnostics", detail: appStore.setupMessage)
-                        statusLine(title: "Microphone permission", detail: "Grant access in System Settings so live capture can start instantly.")
+                        statusLine(title: "Microphone permission", detail: microphoneStatusDetail(for: appStore.headerPillState))
                     }
                 }
             }
@@ -237,6 +276,19 @@ struct SetupView: View {
 
     private var liveCaptureSources: [AudioSource] {
         [.microphone, .systemAudio, .appAudio]
+    }
+
+    private func microphoneStatusDetail(for state: AppStore.HeaderPillState?) -> String {
+        switch state?.action {
+        case .requestPermission:
+            return "Microphone access has not been granted yet. Use the pill to trigger the permission request."
+        case .openSettings:
+            return "Microphone access is blocked. Use the pill to jump to System Settings and enable it."
+        case .some(.none):
+            return "Microphone access is ready, so live capture can start instantly."
+        case nil:
+            return "Microphone status is unavailable right now."
+        }
     }
 
     private func loopbackDeviceDetail(for source: AudioSource) -> String {

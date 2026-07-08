@@ -227,6 +227,43 @@ final class AppStoreTests: XCTestCase {
     }
 
     @MainActor
+    func test_microphoneSourceShowsOnlyPermissionPillInHeader() {
+        let permissionsService = TestPermissionsService(snapshot: .init(microphonePermission: .granted))
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            permissionsService: permissionsService,
+            audioCaptureServiceFactory: { _, _ in TestAudioCaptureService(source: .microphone) },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.selectedSource = .microphone
+
+        XCTAssertFalse(store.showsHeaderLoopbackPicker)
+        XCTAssertEqual(store.headerPillState?.text, "Microphone Ready")
+    }
+
+    @MainActor
+    func test_audioSourcesShowPermissionPillAndLoopbackPickerInHeader() {
+        let permissionsService = TestPermissionsService(snapshot: .init(microphonePermission: .granted))
+        let store = AppStore(
+            historyStore: nil,
+            deviceCatalog: .init(),
+            permissionsService: permissionsService,
+            audioCaptureServiceFactory: { _, _ in TestAudioCaptureService(source: .microphone) },
+            streamingClientFactory: { StubStreamingClient(events: [.ready]) }
+        )
+
+        store.selectedSource = .systemAudio
+        XCTAssertTrue(store.showsHeaderLoopbackPicker)
+        XCTAssertEqual(store.headerPillState?.text, "Microphone Ready")
+
+        store.selectedSource = .appAudio
+        XCTAssertTrue(store.showsHeaderLoopbackPicker)
+        XCTAssertEqual(store.headerPillState?.text, "Microphone Ready")
+    }
+
+    @MainActor
     func test_tappingDeniedMicrophonePillOpensSettings() async {
         let permissionsService = TestPermissionsService(snapshot: .init(microphonePermission: .denied))
         var openedSettings = false

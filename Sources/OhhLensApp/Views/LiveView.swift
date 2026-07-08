@@ -11,11 +11,9 @@ struct LiveView: View {
             TranscriptScreenHeader(
                 title: "Live Subtitles",
                 headerPillState: appStore.headerPillState,
-                isPiPVisible: appStore.pipState.isVisible,
                 availableLoopbackDevices: appStore.availableLoopbackDevices,
                 selectedLoopbackDeviceID: $appStore.selectedLoopbackDeviceID,
-                showsLoopbackDevicePicker: appStore.effectiveCaptureMode.displayCopy.showsLoopbackDevicePicker,
-                onTogglePiP: appStore.togglePiP,
+                showsLoopbackDevicePicker: appStore.showsHeaderLoopbackPicker,
                 onHeaderPillTap: appStore.handleHeaderPillAction
             )
 

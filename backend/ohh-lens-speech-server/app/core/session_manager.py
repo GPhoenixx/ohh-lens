@@ -23,6 +23,7 @@ class SessionManager:
         for chunk in buffer.pop_ready_chunks():
             for result in self.adapter.push_audio(session_id, chunk, is_final=False):
                 event_type = "final" if result.is_final else "partial"
+                print(f"event_type: {event_type}, result: {result.text}")
                 events.append(
                     event_payload(
                         event_type,

@@ -62,11 +62,9 @@ func makeTranscriptFooterBindings(for appStore: AppStore) -> TranscriptFooterBin
 struct TranscriptScreenHeader: View {
     let title: String
     let headerPillState: AppStore.HeaderPillState?
-    let isPiPVisible: Bool
     let availableLoopbackDevices: [AudioInputDevice]
     @Binding var selectedLoopbackDeviceID: String?
     let showsLoopbackDevicePicker: Bool
-    let onTogglePiP: () -> Void
     let onHeaderPillTap: @MainActor () async -> Void
 
     var body: some View {
@@ -78,58 +76,47 @@ struct TranscriptScreenHeader: View {
             headerMiddleControl
 
             Spacer(minLength: 16)
-
-            Button {
-                onTogglePiP()
-            } label: {
-                Label(
-                    isPiPVisible ? "Hide PiP" : "Open PiP",
-                    systemImage: isPiPVisible ? "pip.exit" : "pip.enter"
-                )
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(AppTheme.ColorToken.textPrimary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.Layout.controlCornerRadius, style: .continuous)
-                        .fill(AppTheme.ColorToken.controlFill)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: AppTheme.Layout.controlCornerRadius, style: .continuous)
-                        .strokeBorder(AppTheme.ColorToken.border, lineWidth: 1)
-                }
-            }
-            .buttonStyle(.plain)
         }
     }
 
     @ViewBuilder
     private var headerMiddleControl: some View {
-        if showsLoopbackDevicePicker {
-            CompactSelectionField(
-                title: "Loopback Device",
-                selection: Binding(
-                    get: { selectedLoopbackDeviceID ?? "" },
-                    set: { selectedLoopbackDeviceID = $0 }
-                ),
-                options: availableLoopbackDevices.map(\.id),
-                label: loopbackName(for:)
-            )
-        } else if let headerPillState {
-            MissingLoopbackPill(
-                text: headerPillState.text,
-                isInteractive: headerPillState.isInteractive,
-                onTap: onHeaderPillTap
-            )
+        HStack(spacing: 10) {
+            if let headerPillState {
+                MissingLoopbackPill(
+                    text: headerPillState.text,
+                    tone: headerPillState.tone,
+                    symbolName: headerPillState.symbolName,
+                    isInteractive: headerPillState.isInteractive,
+                    onTap: onHeaderPillTap
+                )
+            }
+
+            if showsLoopbackDevicePicker {
+                CompactSelectionField(
+                    title: "Virtual Device",
+                    selection: Binding(
+                        get: { selectedLoopbackDeviceID ?? "" },
+                        set: { selectedLoopbackDeviceID = $0 }
+                    ),
+                    options: pickerOptions,
+                    label: loopbackName(for:)
+                )
+            }
         }
+    }
+
+    private var pickerOptions: [String] {
+        let ids = availableLoopbackDevices.map(\.id)
+        return ids.isEmpty ? [""] : ids
     }
 
     private func loopbackName(for deviceID: String) -> String {
         if deviceID.isEmpty {
-            return "No Device"
+            return "No Virtual Device"
         }
 
-        return availableLoopbackDevices.first(where: { $0.id == deviceID })?.name ?? "No Device"
+        return availableLoopbackDevices.first(where: { $0.id == deviceID })?.name ?? "No Virtual Device"
     }
 }
 
@@ -527,8 +514,10 @@ func selectionFieldLabel(text: String, minWidth: CGFloat = 150) -> some View {
     }
 }
 
-private struct MissingLoopbackPill: View {
+struct MissingLoopbackPill: View {
     let text: String
+    let tone: AppStore.HeaderPillState.Tone
+    let symbolName: String?
     let isInteractive: Bool
     let onTap: @MainActor () async -> Void
 
@@ -536,22 +525,94 @@ private struct MissingLoopbackPill: View {
         Button {
             Task { await onTap() }
         } label: {
-            Text(text)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(isInteractive ? AppTheme.ColorToken.textPrimary : AppTheme.ColorToken.textMuted)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.Layout.controlCornerRadius, style: .continuous)
-                        .fill(isInteractive ? AppTheme.ColorToken.hoverFill : AppTheme.ColorToken.controlFill)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: AppTheme.Layout.controlCornerRadius, style: .continuous)
-                        .strokeBorder(AppTheme.ColorToken.border, lineWidth: 1)
+            HStack(spacing: 8) {
+                if let symbolName {
+                    Image(systemName: symbolName)
+                        .font(.system(size: 11, weight: .bold))
                 }
+
+                if isReadyState {
+                    Circle()
+                        .fill(readyAccentColor)
+                        .frame(width: 6, height: 6)
+                }
+
+                Text(text)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(backgroundColor)
+            )
+            .overlay {
+                Capsule(style: .continuous)
+                    .strokeBorder(borderColor, lineWidth: 1)
+            }
+            .shadow(color: shadowColor, radius: 10, y: 0)
         }
         .buttonStyle(.plain)
         .disabled(isInteractive == false)
+    }
+
+    private var foregroundColor: Color {
+        switch tone {
+        case .neutral where isReadyState:
+            return AppTheme.ColorToken.textPrimary
+        case .neutral:
+            return AppTheme.ColorToken.textMuted
+        case .accent, .warning:
+            return AppTheme.ColorToken.textPrimary
+        }
+    }
+
+    private var backgroundColor: Color {
+        switch tone {
+        case .neutral where isReadyState:
+            return AppTheme.ColorToken.controlFill.opacity(0.96)
+        case .neutral:
+            return AppTheme.ColorToken.controlFill
+        case .accent:
+            return AppTheme.ColorToken.accent.opacity(0.16)
+        case .warning:
+            return Color(red: 0.78, green: 0.46, blue: 0.10).opacity(0.18)
+        }
+    }
+
+    private var borderColor: Color {
+        switch tone {
+        case .neutral where isReadyState:
+            return readyAccentColor.opacity(0.42)
+        case .neutral:
+            return AppTheme.ColorToken.border
+        case .accent:
+            return AppTheme.ColorToken.accent.opacity(0.42)
+        case .warning:
+            return Color(red: 0.84, green: 0.52, blue: 0.12).opacity(0.52)
+        }
+    }
+
+    private var shadowColor: Color {
+        switch tone {
+        case .neutral where isReadyState:
+            return readyAccentColor.opacity(0.14)
+        case .neutral:
+            return .clear
+        case .accent:
+            return AppTheme.ColorToken.accent.opacity(0.14)
+        case .warning:
+            return Color(red: 0.84, green: 0.52, blue: 0.12).opacity(0.12)
+        }
+    }
+
+    private var isReadyState: Bool {
+        tone == .neutral && isInteractive == false
+    }
+
+    private var readyAccentColor: Color {
+        Color(.green)
     }
 }
 
