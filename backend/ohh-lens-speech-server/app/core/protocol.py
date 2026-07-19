@@ -10,6 +10,7 @@ class StartMessage(BaseModel):
     channels: int
     sample_format: str
     language: str = "auto"
+    target_language: str = "vi"
 
     @field_validator("sample_rate")
     @classmethod

@@ -41,7 +41,7 @@ public final class AppStore {
     }
     public var selectedSource: AudioSource = .microphone
     public var captionMode: CaptionMode = .dualLine
-    public var languagePair = LanguagePair(source: "en", target: "en")
+    public var languagePair = LanguagePair(source: "en", target: "vi")
     public var availableLoopbackDevices: [AudioInputDevice] = []
     public var selectedLoopbackDeviceID: String?
     public var captureLevel = AudioLevelSnapshot()
@@ -246,6 +246,7 @@ public final class AppStore {
             statusText = resolution.startupStatusText
             backendStatusText = "Connecting to local FunASR backend"
             let language = languagePair.source
+            let targetLanguage = languagePair.target
 
             streamingTask = Task.detached(priority: .userInitiated) { [weak self] in
                 guard let self else {
@@ -253,7 +254,10 @@ public final class AppStore {
                 }
 
                 do {
-                    try await client.startSession(language: language)
+                    try await client.startSession(
+                        language: language,
+                        targetLanguage: targetLanguage
+                    )
                     await self.consumeStreamingEvents(from: client)
                 } catch is CancellationError {
                     return
@@ -610,6 +614,9 @@ public final class AppStore {
         case .partial(let text):
             liveTranscriptState.applyPartial(text)
             statusText = "Receiving partial subtitles"
+        case .partialSegment(let segmentID, let text):
+            liveTranscriptState.applyPartial(segmentID: segmentID, text: text)
+            statusText = "Receiving partial subtitles"
         case .final(let text):
             liveTranscriptState.applyFinal(text)
 
@@ -621,6 +628,24 @@ public final class AppStore {
                     to: currentSession
                 )
             }
+        case .finalSegment(let segmentID, let text):
+            liveTranscriptState.applyFinal(segmentID: segmentID, text: text)
+
+            if let currentSession {
+                self.currentSession = audioChunkPipeline.appendChunk(
+                    data: Data(),
+                    transcript: text,
+                    translation: nil,
+                    to: currentSession
+                )
+            }
+        case .translation(let segmentID, let translationID, let sourceText, let translatedText):
+            liveTranscriptState.applyTranslation(
+                segmentID: segmentID,
+                translationID: translationID,
+                sourceText: sourceText,
+                translatedText: translatedText
+            )
         case .error(let message):
             handleStreamingFailure(StreamingFailure.message(message))
         case .closed:

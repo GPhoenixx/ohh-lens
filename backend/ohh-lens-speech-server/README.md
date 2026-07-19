@@ -28,9 +28,50 @@ Override with environment variables when needed:
 - `FUNASR_MODEL_NAME=iic/SenseVoiceSmall`
 - `FUNASR_DEVICE=mps`
 - `FUNASR_HUB=ms` if you want to prefer ModelScope instead
+- `TRANSLATION_MODEL_NAME=Helsinki-NLP/opus-mt-en-vi`
+- `TRANSLATION_DEVICE=cpu`
+- `TRANSLATION_SECONDS_CAP=6.0` maximum wait before emitting a translation block
+- `TRANSLATION_MIN_SENTENCE_WORDS=8` minimum words before a punctuated sentence emits early
+- `TRANSLATION_CONTEXT_PAIR_COUNT=2` completed bilingual pairs retained for Qwen context
+
+For multilingual translation, set `TRANSLATION_MODEL_NAME=facebook/m2m100_418M`.
+The backend automatically configures M2M100 for English input and Vietnamese output.
+
+For context-aware English-to-Vietnamese translation, use Qwen:
+
+```bash
+export TRANSLATION_MODEL_NAME="Qwen/Qwen2.5-7B-Instruct"
+export TRANSLATION_DEVICE="mps"
+export TRANSLATION_CONTEXT_PAIR_COUNT=2
+```
+
+The backend gives Qwen the latest completed English/Vietnamese pairs as prompt
+context and instructs it to return only the new Vietnamese translation. Qwen is
+substantially larger than OPUS or M2M100, so its first download and responses
+will require more memory and may add subtitle latency.
+
+For Apple Silicon, prefer the quantized MLX version instead of the full
+PyTorch checkpoint:
+
+```bash
+UV_CACHE_DIR="$PWD/.uv-cache-local" uv sync --extra mlx
+export TRANSLATION_MODEL_NAME="mlx-community/Qwen2.5-7B-Instruct-4bit"
+export TRANSLATION_CONTEXT_PAIR_COUNT=2
+```
+
+MLX-LM loads the 4-bit model locally and retains the same bilingual context
+prompt. `TRANSLATION_DEVICE` is not used by this MLX path.
 
 FunASR resolves the configured model through `AutoModel(...)`. If the model is not already present locally, FunASR may download it on first use.
 If `FUNASR_HUB` is unset, the server defaults to `hub="hf"` for both the ASR and VAD model loads.
+
+Live English-to-Vietnamese translation is enabled for sessions started with
+`language="en"` and `target_language="vi"`. The backend restores punctuation
+with FunASR's `ct-punc` model, then translates locally with
+`Helsinki-NLP/opus-mt-en-vi` by default. The backend accumulates partial text
+across ASR segments and emits a bilingual subtitle block when punctuation forms
+a sentence of at least eight words, or after six seconds. Remaining buffered
+text is translated when listening stops.
 
 ## Run locally
 
@@ -121,8 +162,10 @@ Client message flow:
 Server event flow:
 
 - `ready` after a valid `start`
-- `partial` while audio is still streaming
-- `final` after `stop`
+- `partial` while audio is still streaming, with a `segment_id`
+- `final` after `stop`, with a `segment_id`
+- `translation` after a buffered English sentence is punctuated and translated,
+  with `source_text`, `translated_text`, and the original `segment_id`
 - `error` if validation or audio processing fails
 - `closed` when the session shuts down cleanly
 

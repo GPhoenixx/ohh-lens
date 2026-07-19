@@ -8,6 +8,7 @@ from app.api.health import build_health_router
 from app.api.ws import build_ws_router
 from app.core.config import get_settings
 from app.core.session_manager import SessionManager
+from app.core.translation import LocalEnglishVietnameseTranslator
 from app.funasr.adapter import (
     FunASRStreamingAdapter,
     StreamingAdapter,
@@ -49,6 +50,18 @@ def _create_app(
     session_manager = SessionManager(
         adapter=active_adapter,
         chunk_bytes=_streaming_chunk_bytes(settings),
+        translator=(
+            LocalEnglishVietnameseTranslator(
+                model_name=settings.translation_model_name,
+                device=settings.translation_device,
+                hub=settings.funasr_hub,
+            )
+            if adapter is None
+            else None
+        ),
+        translation_seconds_cap=settings.translation_seconds_cap,
+        translation_min_sentence_words=settings.translation_min_sentence_words,
+        translation_context_pair_count=settings.translation_context_pair_count,
     )
 
     @asynccontextmanager

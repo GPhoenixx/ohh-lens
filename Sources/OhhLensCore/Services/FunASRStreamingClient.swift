@@ -13,12 +13,12 @@ public actor FunASRStreamingClient: FunASRStreamingServicing {
         self.session = session
     }
 
-    public func startSession(language: String) async throws {
+    public func startSession(language: String, targetLanguage: String) async throws {
         let task = session.webSocketTask(with: webSocketURL)
         self.task = task
         task.resume()
 
-        let payload = try Self.startMessage(language: language)
+        let payload = try Self.startMessage(language: language, targetLanguage: targetLanguage)
         try await task.send(.string(payload))
     }
 
@@ -59,14 +59,19 @@ public actor FunASRStreamingClient: FunASRStreamingServicing {
 }
 
 extension FunASRStreamingClient {
-    static func startMessage(language: String, sessionID: String = UUID().uuidString) throws -> String {
+    static func startMessage(
+        language: String,
+        targetLanguage: String = "vi",
+        sessionID: String = UUID().uuidString
+    ) throws -> String {
         let payload = StartMessage(
             type: "start",
             sessionID: sessionID,
             sampleRate: 16_000,
             channels: 1,
             sampleFormat: "pcm_s16le",
-            language: language
+            language: language,
+            targetLanguage: targetLanguage
         )
         let data = try JSONEncoder().encode(payload)
         return String(decoding: data, as: UTF8.self)
@@ -79,9 +84,22 @@ extension FunASRStreamingClient {
         case "ready":
             return .ready
         case "partial":
+            if let segmentID = payload.segmentID {
+                return .partialSegment(segmentID: segmentID, text: payload.text ?? "")
+            }
             return .partial(payload.text ?? "")
         case "final":
+            if let segmentID = payload.segmentID {
+                return .finalSegment(segmentID: segmentID, text: payload.text ?? "")
+            }
             return .final(payload.text ?? "")
+        case "translation":
+            return .translation(
+                segmentID: payload.segmentID ?? "legacy-segment",
+                translationID: payload.translationID ?? "legacy-translation",
+                sourceText: payload.sourceText ?? "",
+                translatedText: payload.translatedText ?? ""
+            )
         case "error":
             return .error(payload.message ?? payload.text ?? "Unknown backend error")
         case "closed":
@@ -100,6 +118,7 @@ private extension FunASRStreamingClient {
         let channels: Int
         let sampleFormat: String
         let language: String
+        let targetLanguage: String
 
         enum CodingKeys: String, CodingKey {
             case type
@@ -108,13 +127,28 @@ private extension FunASRStreamingClient {
             case channels
             case sampleFormat = "sample_format"
             case language
+            case targetLanguage = "target_language"
         }
     }
 
     struct EventPayload: Decodable {
         let type: String
+        let segmentID: String?
+        let translationID: String?
         let text: String?
         let message: String?
+        let sourceText: String?
+        let translatedText: String?
+
+        enum CodingKeys: String, CodingKey {
+            case type
+            case segmentID = "segment_id"
+            case translationID = "translation_id"
+            case text
+            case message
+            case sourceText = "source_text"
+            case translatedText = "translated_text"
+        }
     }
 
     enum StreamingError: LocalizedError {

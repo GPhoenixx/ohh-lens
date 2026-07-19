@@ -154,12 +154,15 @@ struct TranscriptPanel<Content: View, Footer: View>: View {
 
 struct LiveCaptionViewport: View {
     let visibleCaptionLines: [String]
+    let translatedCaptionPairs: [LiveSubtitlePair]
+    let untranslatedDraftText: String?
     let isListening: Bool
     let idleMessage: String
     let lastError: String?
     @State private var previousVisibleCaptionLines: [String] = []
 
     private let bottomScrollAnchorID = "live-caption-bottom-anchor"
+    private let translationBottomScrollAnchorID = "translation-caption-bottom-anchor"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -173,59 +176,22 @@ struct LiveCaptionViewport: View {
                 LiveStatusBadge(isListening: isListening)
             }
 
-            if visibleCaptionLines.isEmpty {
+            if visibleCaptionLines.isEmpty && translatedCaptionPairs.isEmpty {
                 TranscriptIdleState(
                     title: "Live Subtitles Idle",
                     message: idleMessage
                 )
                 .frame(maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 18) {
-                            ForEach(Array(visibleCaptionLines.enumerated()), id: \.offset) { index, line in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(index == visibleCaptionLines.count - 1 ? "Now" : "Previous")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundStyle(AppTheme.ColorToken.textMuted)
-                                        .textCase(.uppercase)
-                                        .tracking(0.8)
+                HStack(alignment: .top, spacing: 24) {
+                    liveTranscriptColumn
 
-                                    Text(line)
-                                        .font(index == visibleCaptionLines.count - 1 ? .system(size: 28, weight: .semibold) : .system(size: 20, weight: .medium))
-                                        .foregroundStyle(index == visibleCaptionLines.count - 1 ? AppTheme.ColorToken.textPrimary : AppTheme.ColorToken.textMuted)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
+                    Divider()
+                        .overlay(AppTheme.ColorToken.border)
 
-                            Color.clear
-                                .frame(height: 1)
-                                .id(bottomScrollAnchorID)
-                        }
-                    }
-                    .scrollIndicators(.hidden)
-                    .frame(maxHeight: .infinity)
-                    .onAppear {
-                        previousVisibleCaptionLines = visibleCaptionLines
-                        proxy.scrollTo(bottomScrollAnchorID, anchor: .bottom)
-                    }
-                    .onChange(of: visibleCaptionLines, initial: false) { _, nextLines in
-                        let shouldScroll = LiveCaptionAutoScrollTrigger.shouldScroll(
-                            from: previousVisibleCaptionLines,
-                            to: nextLines
-                        )
-                        previousVisibleCaptionLines = nextLines
-
-                        guard shouldScroll else {
-                            return
-                        }
-
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            proxy.scrollTo(bottomScrollAnchorID, anchor: .bottom)
-                        }
-                    }
+                    translatedPairsColumn
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
 
             if let lastError {
@@ -235,6 +201,107 @@ struct LiveCaptionViewport: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var liveTranscriptColumn: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            columnHeader("Now")
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    Text(liveTranscriptText)
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(AppTheme.ColorToken.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id(bottomScrollAnchorID)
+                }
+                .scrollIndicators(.hidden)
+                .onAppear {
+                    previousVisibleCaptionLines = visibleCaptionLines
+                    proxy.scrollTo(bottomScrollAnchorID, anchor: .bottom)
+                }
+                .onChange(of: visibleCaptionLines, initial: false) { _, nextLines in
+                    let shouldScroll = LiveCaptionAutoScrollTrigger.shouldScroll(
+                        from: previousVisibleCaptionLines,
+                        to: nextLines
+                    )
+                    previousVisibleCaptionLines = nextLines
+
+                    guard shouldScroll else {
+                        return
+                    }
+
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        proxy.scrollTo(bottomScrollAnchorID, anchor: .bottom)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+
+    private var translatedPairsColumn: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            columnHeader("Vietnamese")
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if translatedCaptionPairs.isEmpty {
+                            Text("Waiting for a 2-second translation block...")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(AppTheme.ColorToken.textMuted)
+                        } else {
+                            ForEach(translatedCaptionPairs) { pair in
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(pair.englishText)
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(AppTheme.ColorToken.textPrimary)
+
+                                    Text(pair.vietnameseText)
+                                        .font(.system(size: 19, weight: .medium))
+                                        .foregroundStyle(AppTheme.ColorToken.textPrimary)
+                                }
+                                .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id(translationBottomScrollAnchorID)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollIndicators(.hidden)
+                .onAppear {
+                    proxy.scrollTo(translationBottomScrollAnchorID, anchor: .bottom)
+                }
+                .onChange(of: translatedCaptionPairs, initial: false) { _, _ in
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        proxy.scrollTo(translationBottomScrollAnchorID, anchor: .bottom)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+
+    private var liveTranscriptText: String {
+        let transcript = visibleCaptionLines.joined(separator: "\n")
+        return transcript.isEmpty ? (untranslatedDraftText ?? "") : transcript
+    }
+
+    private func columnHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(AppTheme.ColorToken.textMuted)
+            .textCase(.uppercase)
+            .tracking(0.8)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

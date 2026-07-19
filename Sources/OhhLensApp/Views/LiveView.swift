@@ -20,6 +20,8 @@ struct LiveView: View {
             TranscriptPanel {
                 LiveCaptionViewport(
                     visibleCaptionLines: appStore.liveTranscriptState.visibleCaptionLines,
+                    translatedCaptionPairs: appStore.liveTranscriptState.translatedCaptionPairs,
+                    untranslatedDraftText: appStore.liveTranscriptState.untranslatedDraftText,
                     isListening: appStore.isListening,
                     idleMessage: appStore.liveIdleMessage,
                     lastError: appStore.liveTranscriptState.lastError

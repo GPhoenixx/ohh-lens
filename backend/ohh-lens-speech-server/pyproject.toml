@@ -16,6 +16,8 @@ dependencies = [
   "torchaudio>=2.11,<2.12",
   "funasr",
   "qwen-asr",
+  "transformers>=4.57,<5.0",
+  "sentencepiece>=0.2,<1.0",
   "pynndescent>=0.6,<0.7",
 ]
 
@@ -24,4 +26,7 @@ dev = [
   "httpx>=0.28,<1.0",
   "pytest>=8.2,<9.0",
   "pytest-asyncio>=0.23,<1.0",
+]
+mlx = [
+  "mlx-lm>=0.29.1,<0.30.0",
 ]

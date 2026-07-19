@@ -563,6 +563,98 @@ final class AppStoreTests: XCTestCase {
     }
 
     @MainActor
+    func test_translationUpdatesVietnameseForActiveSegment() {
+        let store = AppStore()
+
+        store.handleStreamingEvent(.partialSegment(segmentID: "seg-1", text: "i want to review"))
+        store.handleStreamingEvent(
+            .translation(
+                segmentID: "seg-1",
+                translationID: "seg-1-translation-1",
+                sourceText: "i want to review",
+                translatedText: "toi muon xem lai"
+            )
+        )
+
+        XCTAssertEqual(store.liveTranscriptState.visibleCaptionLines.last, "i want to review")
+        XCTAssertEqual(store.liveTranscriptState.visibleTranslationLine, "toi muon xem lai")
+        XCTAssertEqual(
+            store.liveTranscriptState.translatedCaptionPairs,
+            [
+                .init(
+                    id: "seg-1-translation-1",
+                    segmentID: "seg-1",
+                    englishText: "i want to review",
+                    vietnameseText: "toi muon xem lai"
+                )
+            ]
+        )
+    }
+
+    @MainActor
+    func test_translationRowsKeepEachEnglishBlockWithItsVietnameseLine() {
+        let store = AppStore()
+
+        store.handleStreamingEvent(.partialSegment(segmentID: "seg-1", text: "first block"))
+        store.handleStreamingEvent(
+            .translation(
+                segmentID: "seg-1",
+                translationID: "seg-1-translation-1",
+                sourceText: "first block",
+                translatedText: "khoi dau tien"
+            )
+        )
+        store.handleStreamingEvent(.partialSegment(segmentID: "seg-1", text: "first block second block"))
+        store.handleStreamingEvent(
+            .translation(
+                segmentID: "seg-1",
+                translationID: "seg-1-translation-2",
+                sourceText: "second block",
+                translatedText: "khoi thu hai"
+            )
+        )
+
+        XCTAssertEqual(store.liveTranscriptState.translatedCaptionPairs.count, 2)
+        XCTAssertNil(store.liveTranscriptState.untranslatedDraftText)
+    }
+
+    @MainActor
+    func test_newSegmentAppendsDelayedTranslationForThePreviousSegment() {
+        let store = AppStore()
+
+        store.handleStreamingEvent(.partialSegment(segmentID: "seg-1", text: "old words"))
+        store.handleStreamingEvent(
+            .translation(
+                segmentID: "seg-1",
+                translationID: "seg-1-translation-1",
+                sourceText: "old words",
+                translatedText: "tu cu"
+            )
+        )
+        store.handleStreamingEvent(.partialSegment(segmentID: "seg-2", text: "new words"))
+        store.handleStreamingEvent(
+            .translation(
+                segmentID: "seg-1",
+                translationID: "seg-1-translation-2",
+                sourceText: "old words",
+                translatedText: "ban dich cu"
+            )
+        )
+
+        XCTAssertEqual(store.liveTranscriptState.visibleCaptionLines.last, "new words")
+        XCTAssertEqual(store.liveTranscriptState.visibleTranslationLine, "ban dich cu")
+        XCTAssertEqual(
+            store.liveTranscriptState.translatedCaptionPairs.last,
+            .init(
+                id: "seg-1-translation-2",
+                segmentID: "seg-1",
+                englishText: "old words",
+                vietnameseText: "ban dich cu"
+            )
+        )
+    }
+
+    @MainActor
     func test_liveCaptionAutoScrollTriggerFollowsUpdatesToLatestCaption() {
         XCTAssertFalse(
             LiveCaptionAutoScrollTrigger.shouldScroll(
@@ -828,7 +920,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.captionMode, .dualLine)
         XCTAssertEqual(store.selectedSource, .microphone)
         XCTAssertEqual(store.languagePair.source, "en")
-        XCTAssertEqual(store.languagePair.target, "en")
+        XCTAssertEqual(store.languagePair.target, "vi")
     }
 
     @MainActor
@@ -949,7 +1041,7 @@ private actor StubStreamingClient: FunASRStreamingServicing {
         self.startMode = startMode
     }
 
-    func startSession(language: String) async throws {
+    func startSession(language: String, targetLanguage: String) async throws {
         if startMode == .blocked {
             await withCheckedContinuation { continuation in
                 startContinuation = continuation

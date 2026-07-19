@@ -7,13 +7,16 @@ public protocol FunASRServicing: Sendable {
 public enum FunASRStreamingEvent: Equatable, Sendable {
     case ready
     case partial(String)
+    case partialSegment(segmentID: String, text: String)
     case final(String)
+    case finalSegment(segmentID: String, text: String)
+    case translation(segmentID: String, translationID: String, sourceText: String, translatedText: String)
     case error(String)
     case closed
 }
 
 public protocol FunASRStreamingServicing: Sendable {
-    func startSession(language: String) async throws
+    func startSession(language: String, targetLanguage: String) async throws
     func sendAudioChunk(_ data: Data) async throws
     func stopSession() async
     func nextEvent() async throws -> FunASRStreamingEvent
