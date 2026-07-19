@@ -11,7 +11,11 @@ class TranslatorProtocol(Protocol):
 
 class ContextualTranslatorProtocol(TranslatorProtocol, Protocol):
     def translate_with_context(
-        self, text: str, context: list[tuple[str, str]]
+        self,
+        text: str,
+        context: list[tuple[str, str]],
+        source_language: str,
+        target_language: str,
     ) -> str: ...
 
 
@@ -21,6 +25,8 @@ class LiveTranslationAssembler:
     seconds_cap: float = 6.0
     min_sentence_words: int = 8
     context_pair_count: int = 2
+    source_language: str = "en"
+    target_language: str = "vi"
     clock: Callable[[], float] = time.monotonic
     pending_source_text: str = ""
     pending_segment_id: str | None = None
@@ -109,6 +115,8 @@ class LiveTranslationAssembler:
             translated_text = contextual_translate(
                 translation_input,
                 self.completed_pairs[-self.context_pair_count :] if self.context_pair_count else [],
+                self.source_language,
+                self.target_language,
             )
         else:
             translated_text = self.translator.translate(translation_input)

@@ -88,12 +88,17 @@ class FakeQwenModel:
 class FakeMLXTokenizer:
     def __init__(self) -> None:
         self.messages: list[dict[str, str]] | None = None
+        self.enable_thinking: bool | None = None
 
     def apply_chat_template(
-        self, messages: list[dict[str, str]], add_generation_prompt: bool
+        self,
+        messages: list[dict[str, str]],
+        add_generation_prompt: bool,
+        enable_thinking: bool | None = None,
     ) -> str:
         assert add_generation_prompt is True
         self.messages = messages
+        self.enable_thinking = enable_thinking
         return "formatted prompt"
 
 
@@ -135,6 +140,31 @@ def test_qwen_translation_uses_bilingual_pairs_as_context_and_returns_new_output
     assert model.generation_config.top_k is None
 
 
+def test_qwen_translation_prompt_uses_source_and_target_languages():
+    translator = LocalEnglishVietnameseTranslator(
+        model_name="mlx-community/Qwen3-8B-4bit",
+        source_language="ja",
+        target_language="vi",
+    )
+    tokenizer = FakeMLXTokenizer()
+    translator._tokenizer = tokenizer
+    translator._translation_model = object()
+    translator._mlx_generate = lambda **_kwargs: "Bản dịch mới"
+    translator._mlx_sampler = "greedy-sampler"
+
+    translator.translate_with_context(
+        "これは新しい字幕です。",
+        [("これは前の字幕です。", "Đây là phụ đề trước.")],
+    )
+
+    prompt_context = tokenizer.messages[1]["content"]
+    assert "Japanese" in tokenizer.messages[0]["content"]
+    assert "Vietnamese" in tokenizer.messages[0]["content"]
+    assert "これは前の字幕です。" in prompt_context
+    assert "Đây là phụ đề trước." in prompt_context
+    assert "これは新しい字幕です。" in prompt_context
+
+
 def test_qwen_translation_logs_context_and_duration_without_transcript_text(caplog):
     translator = LocalEnglishVietnameseTranslator(model_name="Qwen/Qwen2.5-7B-Instruct")
     translator._tokenizer = FakeQwenTokenizer()
@@ -159,7 +189,7 @@ def test_qwen_uses_float16_weights_on_mps_to_reduce_memory_use():
 
 def test_mlx_qwen_translation_uses_context_and_greedy_generation():
     translator = LocalEnglishVietnameseTranslator(
-        model_name="mlx-community/Qwen2.5-7B-Instruct-4bit"
+        model_name="mlx-community/Qwen3-8B-4bit"
     )
     tokenizer = FakeMLXTokenizer()
     generation_calls: list[dict[str, object]] = []
@@ -174,6 +204,7 @@ def test_mlx_qwen_translation_uses_context_and_greedy_generation():
     )
 
     assert translated == "Bản dịch MLX"
+    assert tokenizer.enable_thinking is False
     assert "Then make it thinner." in tokenizer.messages[1]["content"]
     assert generation_calls == [
         {

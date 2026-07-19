@@ -47,18 +47,19 @@ def _create_app(
         decoder_chunk_look_back=settings.funasr_decoder_chunk_look_back,
         min_audio_rms=settings.funasr_min_audio_rms,
     )
+    translator = (
+        LocalEnglishVietnameseTranslator(
+            model_name=settings.translation_model_name,
+            device=settings.translation_device,
+            hub=settings.funasr_hub,
+        )
+        if adapter is None
+        else None
+    )
     session_manager = SessionManager(
         adapter=active_adapter,
         chunk_bytes=_streaming_chunk_bytes(settings),
-        translator=(
-            LocalEnglishVietnameseTranslator(
-                model_name=settings.translation_model_name,
-                device=settings.translation_device,
-                hub=settings.funasr_hub,
-            )
-            if adapter is None
-            else None
-        ),
+        translator=translator,
         translation_seconds_cap=settings.translation_seconds_cap,
         translation_min_sentence_words=settings.translation_min_sentence_words,
         translation_context_pair_count=settings.translation_context_pair_count,
@@ -72,6 +73,11 @@ def _create_app(
             except Exception:
                 # Leave the adapter in a not-ready state so health and ws gating can surface it.
                 logger.exception("Failed to load speech backend")
+            try:
+                if translator is not None:
+                    translator.load()
+            except Exception:
+                logger.exception("Failed to load translation backend")
         yield
 
     app = FastAPI(

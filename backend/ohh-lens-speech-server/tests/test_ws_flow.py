@@ -94,7 +94,11 @@ class ContextCapturingTranslator(SentenceEndingTranslator):
         self.contexts: list[list[tuple[str, str]]] = []
 
     def translate_with_context(
-        self, text: str, context: list[tuple[str, str]]
+        self,
+        text: str,
+        context: list[tuple[str, str]],
+        source_language: str,
+        target_language: str,
     ) -> str:
         self.contexts.append(context)
         return f"vi:{text}"
@@ -227,6 +231,26 @@ def test_session_manager_emits_translation_before_closed_for_english_session():
     ]
     assert events[1]["segment_id"] == "translation-session-1"
     assert events[1]["session_id"] == "translation-session"
+
+
+def test_session_manager_skips_translation_when_source_equals_target():
+    session_manager = SessionManager(
+        adapter=FakeStreamingAdapter(),
+        translator=StubTranslator(),
+    )
+    start = StartMessage(
+        type="start",
+        session_id="same-language-session",
+        sample_rate=16000,
+        channels=1,
+        sample_format="pcm_s16le",
+        language="ja",
+        target_language="ja",
+    )
+
+    session_manager.start_session("same-language-session", start)
+
+    assert session_manager.sessions["same-language-session"].translation is None
 
 
 def test_live_translation_assembler_flushes_at_time_cap():
@@ -474,7 +498,7 @@ def test_ws_transcribe_forwards_language_hint_to_adapter():
                 "sample_rate": 16000,
                 "channels": 1,
                 "sample_format": "pcm_s16le",
-                "language": "en",
+                "language": "ja",
             }
         )
         ready = websocket.receive_json()
@@ -483,7 +507,7 @@ def test_ws_transcribe_forwards_language_hint_to_adapter():
         closed_event = websocket.receive_json()
         assert closed_event["type"] == "closed"
 
-    assert adapter.languages == ["en"]
+    assert adapter.languages == ["ja"]
 
 
 def test_ws_transcribe_returns_structured_error_when_audio_processing_fails():

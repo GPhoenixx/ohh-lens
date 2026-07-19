@@ -40,8 +40,8 @@ func makeTranscriptFooterBindings(for appStore: AppStore) -> TranscriptFooterBin
                 let previousSource = appStore.languagePair.source
                 appStore.languagePair.source = newValue
 
-                if appStore.languagePair.target == previousSource {
-                    appStore.languagePair.target = newValue
+                if appStore.languagePair.target == previousSource || appStore.languagePair.target == "same" {
+                    appStore.languagePair.target = newValue == "auto" ? "same" : newValue
                 }
             }
         ),
@@ -459,10 +459,10 @@ struct TranscriptFooterControls: View {
                     selection: Binding(
                         get: { translationSelection },
                         set: { selection in
-                            targetLanguage = selection == "same" ? sourceLanguage : selection
+                            targetLanguage = selection == "same" ? "same" : selection
                         }
                     ),
-                    options: ["same"] + languageOptions.map(\.code),
+                    options: ["same"] + languageOptions.filter { $0.code != "auto" }.map(\.code),
                     label: translationLabel(for:)
                 )
             }
@@ -490,7 +490,7 @@ struct TranscriptFooterControls: View {
     }
 
     private var translationSelection: String {
-        targetLanguage == sourceLanguage ? "same" : targetLanguage
+        targetLanguage == "same" || targetLanguage == sourceLanguage ? "same" : targetLanguage
     }
 
     private func languageName(for code: String) -> String {
@@ -721,8 +721,35 @@ private struct LanguageOption: Hashable {
 }
 
 private let languageOptions: [LanguageOption] = [
+    .init(code: "auto", name: "Auto-detect"),
+    .init(code: "zh", name: "Chinese"),
     .init(code: "en", name: "English"),
-    .init(code: "vi", name: "Vietnamese"),
+    .init(code: "yue", name: "Cantonese"),
+    .init(code: "ar", name: "Arabic"),
+    .init(code: "de", name: "German"),
+    .init(code: "fr", name: "French"),
     .init(code: "es", name: "Spanish"),
-    .init(code: "ja", name: "Japanese")
+    .init(code: "pt", name: "Portuguese"),
+    .init(code: "id", name: "Indonesian"),
+    .init(code: "it", name: "Italian"),
+    .init(code: "ko", name: "Korean"),
+    .init(code: "ru", name: "Russian"),
+    .init(code: "th", name: "Thai"),
+    .init(code: "vi", name: "Vietnamese"),
+    .init(code: "ja", name: "Japanese"),
+    .init(code: "tr", name: "Turkish"),
+    .init(code: "hi", name: "Hindi"),
+    .init(code: "ms", name: "Malay"),
+    .init(code: "nl", name: "Dutch"),
+    .init(code: "sv", name: "Swedish"),
+    .init(code: "da", name: "Danish"),
+    .init(code: "fi", name: "Finnish"),
+    .init(code: "pl", name: "Polish"),
+    .init(code: "cs", name: "Czech"),
+    .init(code: "fil", name: "Filipino"),
+    .init(code: "fa", name: "Persian"),
+    .init(code: "el", name: "Greek"),
+    .init(code: "hu", name: "Hungarian"),
+    .init(code: "mk", name: "Macedonian"),
+    .init(code: "ro", name: "Romanian")
 ]

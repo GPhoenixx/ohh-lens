@@ -28,6 +28,19 @@ final class FunASRStreamingClientTests: XCTestCase {
         XCTAssertEqual(event, .partial("hello world"))
     }
 
+    func test_startMessagePreservesMultilingualSourceAndTargetCodes() throws {
+        let payload = try FunASRStreamingClient.startMessage(
+            language: "ja",
+            targetLanguage: "ar",
+            sessionID: "multilingual-session"
+        )
+        let data = try XCTUnwrap(payload.data(using: .utf8))
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        XCTAssertEqual(json?["language"] as? String, "ja")
+        XCTAssertEqual(json?["target_language"] as? String, "ar")
+    }
+
     func test_mapsPartialEventPayloadWithSegmentID() throws {
         let event = try FunASRStreamingClient.decodeEvent(
             from: #"{"type":"partial","segment_id":"seg-1","text":"hello world"}"#.data(using: .utf8)!

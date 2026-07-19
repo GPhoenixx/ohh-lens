@@ -53,6 +53,49 @@ class StubBrokenQwenAdapter:
         return False
 
 
+class StubStartupTranslator:
+    load_calls = 0
+
+    def __init__(self, **_: object) -> None:
+        type(self).load_calls = 0
+
+    def load(self) -> None:
+        type(self).load_calls += 1
+
+    def punctuate(self, text: str) -> str:
+        return text
+
+    def translate(self, text: str) -> str:
+        return text
+
+
+class StubBrokenTranslator(StubStartupTranslator):
+    def load(self) -> None:
+        raise RuntimeError("translation model unavailable")
+
+
+def test_startup_loads_translation_model_before_serving_requests(monkeypatch):
+    monkeypatch.setattr(app_main, "FunASRStreamingAdapter", StubReadyFunASRAdapter)
+    monkeypatch.setattr(app_main, "LocalEnglishVietnameseTranslator", StubStartupTranslator)
+
+    with TestClient(create_app(adapter_ready=True)) as client:
+        assert StubStartupTranslator.load_calls == 1
+        assert client.get("/health").status_code == 200
+
+
+def test_startup_continues_when_translation_model_fails_to_load(caplog, monkeypatch):
+    monkeypatch.setattr(app_main, "FunASRStreamingAdapter", StubReadyFunASRAdapter)
+    monkeypatch.setattr(app_main, "LocalEnglishVietnameseTranslator", StubBrokenTranslator)
+    caplog.set_level(logging.ERROR)
+
+    with TestClient(create_app(adapter_ready=True)) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["backend_ready"] is True
+    assert "Failed to load translation backend" in caplog.text
+
+
 def test_health_reports_expected_defaults():
     settings = get_settings()
     client = TestClient(create_app())
@@ -72,9 +115,10 @@ def test_health_reports_expected_defaults():
     }
 
 
-def test_health_reports_backend_ready_when_adapter_is_ready():
+def test_health_reports_backend_ready_when_adapter_is_ready(monkeypatch):
     original_adapter = app_main.FunASRStreamingAdapter
     app_main.FunASRStreamingAdapter = StubReadyFunASRAdapter
+    monkeypatch.setattr(app_main, "LocalEnglishVietnameseTranslator", StubStartupTranslator)
 
     try:
         with TestClient(create_app(adapter_ready=True)) as client:
@@ -97,7 +141,7 @@ def test_health_reports_runtime_config_from_settings():
     assert response.json()["device"] == settings.funasr_device
 
 
-def test_health_uses_runtime_env_when_building_real_adapter():
+def test_health_uses_runtime_env_when_building_real_adapter(monkeypatch):
     original_adapter = app_main.FunASRStreamingAdapter
     original_model_name = os.environ.get("FUNASR_MODEL_NAME")
     original_device = os.environ.get("FUNASR_DEVICE")
@@ -106,6 +150,7 @@ def test_health_uses_runtime_env_when_building_real_adapter():
     os.environ["FUNASR_DEVICE"] = "cpu"
     os.environ["FUNASR_HUB"] = "hf"
     app_main.FunASRStreamingAdapter = StubConfigAwareFunASRAdapter
+    monkeypatch.setattr(app_main, "LocalEnglishVietnameseTranslator", StubStartupTranslator)
 
     try:
         with TestClient(create_app(adapter_ready=True)) as client:
@@ -136,9 +181,10 @@ def test_health_uses_runtime_env_when_building_real_adapter():
     assert StubConfigAwareFunASRAdapter.last_kwargs["decoder_chunk_look_back"] == 1
 
 
-def test_startup_logs_clear_error_when_qwen_dependency_is_missing(caplog):
+def test_startup_logs_clear_error_when_qwen_dependency_is_missing(caplog, monkeypatch):
     original_adapter = app_main.FunASRStreamingAdapter
     app_main.FunASRStreamingAdapter = StubBrokenQwenAdapter
+    monkeypatch.setattr(app_main, "LocalEnglishVietnameseTranslator", StubStartupTranslator)
     caplog.set_level(logging.ERROR)
 
     try:

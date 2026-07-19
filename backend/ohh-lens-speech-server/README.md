@@ -23,6 +23,28 @@ Current note:
 
 This is the English-first default runtime for the current backend slice.
 
+## Multilingual sessions
+
+The app sends the source language and translation language in the WebSocket
+start message:
+
+```json
+{
+  "type": "start",
+  "language": "ja",
+  "target_language": "vi"
+}
+```
+
+Supported language codes are: `zh`, `en`, `yue`, `ar`, `de`, `fr`, `es`, `pt`,
+`id`, `it`, `ko`, `ru`, `th`, `vi`, `ja`, `tr`, `hi`, `ms`, `nl`, `sv`, `da`,
+`fi`, `pl`, `cs`, `fil`, `fa`, `el`, `hu`, `mk`, and `ro`.
+
+`language="auto"` is supported for ASR-only sessions. Translation is skipped
+when the source and target languages are the same or the target is `same`.
+Otherwise Qwen receives the selected source/target language names and the
+recent completed bilingual pairs as context.
+
 Override with environment variables when needed:
 
 - `FUNASR_MODEL_NAME=iic/SenseVoiceSmall`
@@ -55,9 +77,15 @@ PyTorch checkpoint:
 
 ```bash
 UV_CACHE_DIR="$PWD/.uv-cache-local" uv sync --extra mlx
-export TRANSLATION_MODEL_NAME="mlx-community/Qwen2.5-7B-Instruct-4bit"
 export TRANSLATION_CONTEXT_PAIR_COUNT=2
 ```
+
+On Apple Silicon, the backend automatically defaults to
+`mlx-community/Qwen3-8B-4bit` when `TRANSLATION_MODEL_NAME` is unset. Qwen3 runs
+with thinking disabled for low-latency translation while still following the
+translation prompt and using the bilingual context.
+Other platforms retain the `Helsinki-NLP/opus-mt-en-vi` default. Set
+`TRANSLATION_MODEL_NAME` explicitly to override the platform default.
 
 MLX-LM loads the 4-bit model locally and retains the same bilingual context
 prompt. `TRANSLATION_DEVICE` is not used by this MLX path.

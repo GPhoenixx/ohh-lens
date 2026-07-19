@@ -46,14 +46,17 @@ class SessionManager:
         translation = None
         if (
             self.translator is not None
-            and start_message.language == "en"
-            and start_message.target_language == "vi"
+            and start_message.language != "auto"
+            and start_message.target_language != "same"
+            and start_message.language != start_message.target_language
         ):
             translation = LiveTranslationAssembler(
                 translator=self.translator,
                 seconds_cap=self.translation_seconds_cap,
                 min_sentence_words=self.translation_min_sentence_words,
                 context_pair_count=self.translation_context_pair_count,
+                source_language=start_message.language,
+                target_language=start_message.target_language,
             )
         self.sessions[session_id] = LiveSessionState(
             start=start_message,

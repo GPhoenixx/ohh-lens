@@ -8,8 +8,24 @@ from funasr import AutoModel
 logger = logging.getLogger(__name__)
 
 
+LANGUAGE_NAMES = {
+    "zh": "Chinese", "en": "English", "yue": "Cantonese", "ar": "Arabic",
+    "de": "German", "fr": "French", "es": "Spanish", "pt": "Portuguese",
+    "id": "Indonesian", "it": "Italian", "ko": "Korean", "ru": "Russian",
+    "th": "Thai", "vi": "Vietnamese", "ja": "Japanese", "tr": "Turkish",
+    "hi": "Hindi", "ms": "Malay", "nl": "Dutch", "sv": "Swedish",
+    "da": "Danish", "fi": "Finnish", "pl": "Polish", "cs": "Czech",
+    "fil": "Filipino", "fa": "Persian", "el": "Greek", "hu": "Hungarian",
+    "mk": "Macedonian", "ro": "Romanian",
+}
+
+LATIN_SCRIPT_LANGUAGES = frozenset(
+    {"en", "de", "fr", "es", "pt", "id", "it", "vi", "tr", "ms", "nl", "sv", "da", "fi", "pl", "cs", "fil", "hu", "ro"}
+)
+
+
 class LocalEnglishVietnameseTranslator:
-    """Lazy local English -> Vietnamese translation with backend punctuation."""
+    """Local English -> Vietnamese translation with backend punctuation."""
 
     def __init__(
         self,
@@ -17,16 +33,24 @@ class LocalEnglishVietnameseTranslator:
         punctuation_model_name: str = "ct-punc",
         device: str = "cpu",
         hub: str = "hf",
+        source_language: str = "en",
+        target_language: str = "vi",
     ) -> None:
         self.model_name = model_name
         self.punctuation_model_name = punctuation_model_name
         self.device = device
         self.hub = hub
+        self.source_language = source_language.lower()
+        self.target_language = target_language.lower()
         self._tokenizer = None
         self._translation_model = None
         self._punctuation_model = None
         self._mlx_generate = None
         self._mlx_sampler = None
+
+    def load(self) -> None:
+        """Load the configured translation model before the first translation."""
+        self._load_translation_model()
 
     def punctuate(self, text: str) -> str:
         self._load_punctuation_model()
@@ -40,20 +64,28 @@ class LocalEnglishVietnameseTranslator:
 
         self._load_translation_model()
         if self._uses_m2m100:
-            self._tokenizer.src_lang = "en"
+            self._tokenizer.src_lang = self.source_language
         inputs = self._tokenizer(text, return_tensors="pt")
         inputs = {key: value.to(self._translation_model.device) for key, value in inputs.items()}
         generation_kwargs = {"max_new_tokens": 128}
         if self._uses_m2m100:
-            generation_kwargs["forced_bos_token_id"] = self._tokenizer.get_lang_id("vi")
+            generation_kwargs["forced_bos_token_id"] = self._tokenizer.get_lang_id(
+                self.target_language
+            )
         generated = self._translation_model.generate(**inputs, **generation_kwargs)
         return self._tokenizer.batch_decode(generated, skip_special_tokens=True)[0].strip()
 
     def translate_with_context(
-        self, text: str, context: list[tuple[str, str]]
+        self,
+        text: str,
+        context: list[tuple[str, str]],
+        source_language: str | None = None,
+        target_language: str | None = None,
     ) -> str:
+        source_language = source_language or self.source_language
+        target_language = target_language or self.target_language
         if self._uses_mlx:
-            return self._translate_with_mlx(text, context)
+            return self._translate_with_mlx(text, context, source_language, target_language)
         if not self._uses_qwen:
             return self.translate(text)
 
@@ -67,7 +99,7 @@ class LocalEnglishVietnameseTranslator:
         )
         try:
             self._load_translation_model()
-            messages = self._translation_messages(text, context)
+            messages = self._translation_messages(text, context, source_language, target_language)
             inputs = self._tokenizer.apply_chat_template(
                 messages,
                 add_generation_prompt=True,
@@ -100,7 +132,13 @@ class LocalEnglishVietnameseTranslator:
         )
         return translated
 
-    def _translate_with_mlx(self, text: str, context: list[tuple[str, str]]) -> str:
+    def _translate_with_mlx(
+        self,
+        text: str,
+        context: list[tuple[str, str]],
+        source_language: str,
+        target_language: str,
+    ) -> str:
         started_at = time.monotonic()
         logger.info(
             "MLX translation started model=%s context_pairs=%d input_chars=%d",
@@ -111,17 +149,21 @@ class LocalEnglishVietnameseTranslator:
         try:
             self._load_translation_model()
             translated = self._generate_mlx_translation(
-                self._translation_messages(text, context)
+                self._translation_messages(
+                    text, context, source_language, target_language
+                )
             )
-            if not self._uses_latin_script(translated):
+            if target_language in LATIN_SCRIPT_LANGUAGES and not self._uses_latin_script(translated):
                 logger.warning(
                     "MLX translation rejected non-Latin output model=%s; retrying",
                     self.model_name,
                 )
                 translated = self._generate_mlx_translation(
-                    self._translation_messages(text, context, strict=True)
+                    self._translation_messages(
+                        text, context, source_language, target_language, strict=True
+                    )
                 )
-            if not self._uses_latin_script(translated):
+            if target_language in LATIN_SCRIPT_LANGUAGES and not self._uses_latin_script(translated):
                 logger.warning(
                     "MLX translation rejected repeated non-Latin output model=%s",
                     self.model_name,
@@ -155,20 +197,33 @@ class LocalEnglishVietnameseTranslator:
     def _uses_mlx(self) -> bool:
         return self.model_name.lower().startswith("mlx-community/")
 
-    @staticmethod
-    def _qwen_translation_prompt(text: str, context: list[tuple[str, str]]) -> str:
+    @property
+    def _uses_qwen3_mlx(self) -> bool:
+        return self.model_name.lower().startswith("mlx-community/qwen3")
+
+    def _qwen_translation_prompt(
+        self,
+        text: str,
+        context: list[tuple[str, str]],
+        source_language: str | None = None,
+        target_language: str | None = None,
+    ) -> str:
+        source_language = source_language or self.source_language
+        target_language = target_language or self.target_language
+        source_name = LANGUAGE_NAMES.get(source_language, source_language)
+        target_name = LANGUAGE_NAMES.get(target_language, target_language)
         context_lines = [
-            f"English: {english}\nVietnamese: {vietnamese}"
-            for english, vietnamese in context
+            f"{source_name}: {source_text}\n{target_name}: {target_text}"
+            for source_text, target_text in context
         ]
         context_text = "\n\n".join(context_lines) or "(none)"
-        return f"CONTEXT\n{context_text}\n\nNEW_ENGLISH\n{text}"
+        return f"CONTEXT\n{context_text}\n\nNEW_TEXT\n{text}"
 
     def _generate_mlx_translation(self, messages: list[dict[str, str]]) -> str:
-        prompt = self._tokenizer.apply_chat_template(
-            messages,
-            add_generation_prompt=True,
-        )
+        template_kwargs = {"add_generation_prompt": True}
+        if self._uses_qwen3_mlx:
+            template_kwargs["enable_thinking"] = False
+        prompt = self._tokenizer.apply_chat_template(messages, **template_kwargs)
         return self._mlx_generate(
             model=self._translation_model,
             tokenizer=self._tokenizer,
@@ -179,19 +234,32 @@ class LocalEnglishVietnameseTranslator:
         ).strip()
 
     def _translation_messages(
-        self, text: str, context: list[tuple[str, str]], strict: bool = False
+        self,
+        text: str,
+        context: list[tuple[str, str]],
+        source_language: str | None = None,
+        target_language: str | None = None,
+        strict: bool = False,
     ) -> list[dict[str, str]]:
+        source_language = source_language or self.source_language
+        target_language = target_language or self.target_language
+        source_name = LANGUAGE_NAMES.get(source_language, source_language)
+        target_name = LANGUAGE_NAMES.get(target_language, target_language)
         system_text = (
-            "Translate NEW_ENGLISH into natural Vietnamese. Use CONTEXT only "
-            "to resolve references and terminology. Return only the Vietnamese "
-            "translation. Do not explain or repeat the context. Write Vietnamese "
-            "quoc ngu using the Latin Vietnamese alphabet with diacritics."
+            f"Translate NEW_TEXT from {source_name} into natural {target_name}. Use CONTEXT only "
+            "to resolve references and terminology. Return only the translation. "
+            "Do not explain or repeat the context. Preserve the meaning, tone, and names."
         )
-        if strict:
-            system_text += " Never output Cyrillic, Chinese, Arabic, or any non-Latin script."
+        if strict and self.target_language in LATIN_SCRIPT_LANGUAGES:
+            system_text += " Never output a non-Latin script."
         return [
             {"role": "system", "content": system_text},
-            {"role": "user", "content": self._qwen_translation_prompt(text, context)},
+            {
+                "role": "user",
+                "content": self._qwen_translation_prompt(
+                    text, context, source_language, target_language
+                ),
+            },
         ]
 
     @staticmethod

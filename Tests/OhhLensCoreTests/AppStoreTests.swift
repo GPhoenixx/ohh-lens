@@ -919,7 +919,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.selectedSection, .liveSubtitles)
         XCTAssertEqual(store.captionMode, .dualLine)
         XCTAssertEqual(store.selectedSource, .microphone)
-        XCTAssertEqual(store.languagePair.source, "en")
+        XCTAssertEqual(store.languagePair.source, "auto")
         XCTAssertEqual(store.languagePair.target, "vi")
     }
 

@@ -41,7 +41,7 @@ public final class AppStore {
     }
     public var selectedSource: AudioSource = .microphone
     public var captionMode: CaptionMode = .dualLine
-    public var languagePair = LanguagePair(source: "en", target: "vi")
+    public var languagePair = LanguagePair(source: "auto", target: "vi")
     public var availableLoopbackDevices: [AudioInputDevice] = []
     public var selectedLoopbackDeviceID: String?
     public var captureLevel = AudioLevelSnapshot()
